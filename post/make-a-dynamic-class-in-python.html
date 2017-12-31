@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Python 动态 Class</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/python.html">python</a>, <a href="https://lingchao.xin/tag/django.html">django</a> </div>
+<div class="date">
+Written on 2015-05-14 23:17:00 </div>
+</div>
+<div class="article-content">
+<p>Sometimes, we hope a class can be dynamicly created in python runtime.
+<!--more--></p>
+
+<p>Take this scenario, we have two Django model classes:</p>
+
+<pre><code><span class="code"><span class="symbol">from</span> django.db <span class="symbol">import</span> models
+
+<span class="special">class</span><span
+class="keyword"> Musician</span><span class="paren1">(<span class="code">models.Model</span>)</span>:
+    first_name = models.CharField<span class="paren1">(<span class="code">max_length=50</span>)</span>
+    last_name = models.CharField<span class="paren1">(<span class="code">max_length=50</span>)</span>
+    sex = models.IntegerField<span class="paren1">(<span class="code"></span>)</span>
+    instrument = models.CharField<span class="paren1">(<span class="code">max_length=100</span>)</span>
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> update_sex</span><span class="paren1">(<span class="code">cls, id, sex</span>)</span>:
+    <span class="symbol">if</span> cls.objects.filter<span class="paren1">(<span class="code">pk=id</span>)</span>.update<span class="paren1">(<span class="code">sex=sex</span>)</span> &gt; 0:
+        <span class="comment"># update Redis
+</span>
+
+<span class="special">class</span><span
+class="keyword"> Album</span><span class="paren1">(<span class="code">models.Model</span>)</span>:
+    name = models.CharField<span class="paren1">(<span class="code">max_length=30</span>)</span>
+    release_date = models.DateField<span class="paren1">(<span class="code"></span>)</span>
+    num_stars = models.IntegerField<span class="paren1">(<span class="code"></span>)</span>
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> update_name</span><span class="paren1">(<span class="code">cls, id, name</span>)</span>:
+    <span class="symbol">if</span> cls.objects.filter<span class="paren1">(<span class="code">pk=id</span>)</span>.update<span class="paren1">(<span class="code">name=name</span>)</span> &gt; 0:
+        <span class="comment"># update Redis
+</span></span></code></pre>
+
+<p>Ok, what if we just need Redis key-value cache, how can we design our Redis class ? Most of all, we think about two same like classes like this:</p>
+
+<pre><code><span class="code"><span class="special">class</span><span
+class="keyword"> RMusician</span>:
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> set_sex</span><span class="paren1">(<span class="code">cls, key, sex</span>)</span>:
+    ...
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> get_sex</span><span class="paren1">(<span class="code">cls, key</span>)</span>:
+    ...
+
+<span class="special">class</span><span
+class="keyword"> RAlbum</span>:
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> set_sex</span><span class="paren1">(<span class="code">cls, key, sex</span>)</span>:
+    ...
+
+    <span class="symbol">@classmethod</span>
+    <span class="special">def</span><span
+class="keyword"> get_sex</span><span class="paren1">(<span class="code">cls, key</span>)</span>:
+    ...
+</span></code></pre>
+
+<p>This may be very ugly ! But we can make things better in Python:</p>
+
+<pre><code><span class="code"><span class="special">def</span><span
+class="keyword"> make_class</span><span class="paren1">(<span class="code">cls, *fields</span>)</span>:
+    RedisFactory = type<span class="paren1">(<span class="code"><span class="string">'RedisFactory'</span>, <span class="paren2">(<span class="code"></span>)</span>, <span class="paren2">{<span class="code"><span class="string">'r'</span>: redis.Redis<span class="paren3">(<span class="code"></span>)</span></span>}</span></span>)</span>
+
+    <span class="special">def</span><span
+class="keyword"> set_x</span><span class="paren1">(<span class="code">key, x</span>)</span>:
+    Redisfactory.r.set<span class="paren1">(<span class="code">key, x</span>)</span>
+
+    <span class="special">def</span><span
+class="keyword"> get_x</span><span class="paren1">(<span class="code">field, key</span>)</span>:
+    x = Redisfactory.r.get<span class="paren1">(<span class="code">key</span>)</span>
+    <span class="symbol">if</span> <span class="symbol">not</span> x:
+        obj = globals<span class="paren1">(<span class="code"></span>)</span><span class="paren1">[<span class="code">cls</span>]</span>.objects.filter<span class="paren1">(<span class="code">id=key</span>)</span>.first<span class="paren1">(<span class="code"></span>)</span>
+        <span class="symbol">if</span> obj:
+        x = getattr<span class="paren1">(<span class="code">obj, field</span>)</span>
+        set_x<span class="paren1">(<span class="code">key, x</span>)</span>
+    <span class="symbol">return</span> x
+
+    <span class="symbol">for</span> f <span class="symbol">in</span> fields:
+    <span class="comment"># setattr(RedisFactory, 'get_{0}'.format(f), classmethod(lambda kls, key: get_x(f, key)))
+</span>    <span class="comment"># setattr(Redisfactory, 'set_{0}'.format(f), classmethod(lambda kls, key, x: set_x(key, x)))
+</span>
+    <span class="symbol">return</span> RedisFactory
+
+RMusician = make_class<span class="paren1">(<span class="code"><span class="string">'Musician'</span>, <span class="string">'sex'</span></span>)</span>
+RAlbum = make_class<span class="paren1">(<span class="code"><span class="string">'Album'</span>, <span class="string">'name'</span></span>)</span></span></code></pre>
+
+<p>That's it.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/emacs-is-a-habit.html">Previous</a><br>
+<a href="https://lingchao.xin/post/the-past-2016.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

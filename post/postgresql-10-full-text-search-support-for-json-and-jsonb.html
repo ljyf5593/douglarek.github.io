@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">PostgreSQL 10 JSON 全文检索</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/database.html">database</a>, <a href="https://lingchao.xin/tag/postgresql.html">postgresql</a>, <a href="https://lingchao.xin/tag/json.html">json</a> </div>
+<div class="date">
+Written on 2017-04-05 12:05:29 </div>
+</div>
+<div class="article-content">
+<p><a href="https://www.depesz.com/2017/04/04/waiting-for-postgresql-10-full-text-search-support-for-json-and-jsonb/" >译文</a>版权@归原文所有.</p>
+
+<p>这是对 JSON 数据的又一个很酷的补充. 现在我们可以轻松地添加 json 值的全文搜索.
+<!--more--></p>
+
+<p>一个它如何运作的快速例子:</p>
+
+<pre><code>$ select id, jsonb_pretty(payload) from test;
+id |                                                jsonb_pretty
+----+-------------------------------------------------------------------------------------------------------------
+  1 | {                                                                                                          +
+    |     "glossary": {                                                                                          +
+    |         "title": "example glossary",                                                                       +
+    |         "GlossDiv": {                                                                                      +
+    |             "title": "S",                                                                                  +
+    |             "GlossList": {                                                                                 +
+    |                 "GlossEntry": {                                                                            +
+    |                     "ID": "SGML",                                                                          +
+    |                     "Abbrev": "ISO 8879:1986",                                                             +
+    |                     "SortAs": "SGML",                                                                      +
+    |                     "Acronym": "SGML",                                                                     +
+    |                     "GlossDef": {                                                                          +
+    |                         "para": "A meta-markup language, used to create markup languages such as DocBook.",+
+    |                         "GlossSeeAlso": [                                                                  +
+    |                             "GML",                                                                         +
+    |                             "XML"                                                                          +
+    |                         ]                                                                                  +
+    |                     },                                                                                     +
+    |                     "GlossSee": "markup",                                                                  +
+    |                     "GlossTerm": "Standard Generalized Markup Language"                                    +
+    |                 }                                                                                          +
+    |             }                                                                                              +
+    |         }                                                                                                  +
+    |     }                                                                                                      +
+    | }
+(1 row)</code></pre>
+
+<p>正如你所看到的, 我有一个相当嵌套的 json 结构. 现在我们需要 <code>tsvector</code> 数据来构建一个索引. 我们可以这样:</p>
+
+<pre><code>$ select to_tsvector('english', payload) from test;
+                                  to_tsvector
+--------------------------------------------------------------------------------
+ '1986':8 '8879':7 'creat':21 'docbook':26 'exampl':1 'general':35 'glossari':2.
+. 'gml':28 'iso':6 'languag':18,23,37 'markup':17,22,32,36 'meta':16 'meta-mark.
+.up':15 'sgml':4,10,12 'standard':34 'use':19 'xml':30
+(1 row)</code></pre>
+
+<p>很好. 它找到了 json 数据值中的所有单词(它没有索引对象的键).</p>
+
+<p>还有与之匹配的 <code>ts_headline</code> 函数.</p>
+
+<pre><code>$ select jsonb_pretty(ts_headline(payload, 'sgml'::tsquery)) from test;
+                                                jsonb_pretty
+-------------------------------------------------------------------------------------------------------------
+ {                                                                                                          +
+     "glossary": {                                                                                          +
+         "title": "example glossary",                                                                       +
+         "GlossDiv": {                                                                                      +
+             "title": "S",                                                                                  +
+             "GlossList": {                                                                                 +
+                 "GlossEntry": {                                                                            +
+                     "ID": "&lt;b&gt;SGML&lt;/b&gt;",                                                                   +
+                     "Abbrev": "ISO 8879:1986",                                                             +
+                     "SortAs": "&lt;b&gt;SGML&lt;/b&gt;",                                                               +
+                     "Acronym": "&lt;b&gt;SGML&lt;/b&gt;",                                                              +
+                     "GlossDef": {                                                                          +
+                         "para": "A meta-markup language, used to create markup languages such as DocBook.",+
+                         "GlossSeeAlso": [                                                                  +
+                             "GML",                                                                         +
+                             "XML"                                                                          +
+                         ]                                                                                  +
+                     },                                                                                     +
+                     "GlossSee": "markup",                                                                  +
+                     "GlossTerm": "Standard Generalized Markup Language"                                    +
+                 }                                                                                          +
+             }                                                                                              +
+         }                                                                                                  +
+     }                                                                                                      +
+ }
+(1 row)</code></pre>
+
+<p>请注意上面<code>SGML</code> 字符串两边的 <code>&lt;b&gt;</code>.</p>
+
+<p>讲真 - 我认为 JSON 被应用程序开发者滥用了很多, 但是这绝对是一个很好的补充, 非常感谢 Dmitry 和 Andrew.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/the-past-2016.html">Previous</a><br>
+<a href="https://lingchao.xin/post/gin-gonic-middleware-theory-and-apply.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

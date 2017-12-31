@@ -1,0 +1,1064 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> <channel> <title>A Coder @ Work</title> <link>https://lingchao.xin</link> <atom:link href="https://lingchao.xin/rss.xml" rel="self" type="application/rss+xml" /> <language>en-us</language> <pubDate>Thu, 01 Feb 2018 09:55:30 +0800</pubDate> <item> <title>Go 函数式选项模式</title> <link>https://lingchao.xin/post/functional-options-pattern-in-go.html</link> <pubDate>2018-02-01 12:00:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/functional-options-pattern-in-go.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文译自 <a href="https://halls-of-valhalla.org/beta/articles/functional-options-pattern-in-go,54/" >Functional Options Pattern in Go</a> 版权@归原文所有.
+<!--more--></p>
+
+<p>Golang 开发者遇到的许多问题之一是尝试将一个函数的参数设置为可选. 这是一个非常常见的用例, 有些对象应该使用一些基本的默认设置来开箱即用, 并且你偶尔可能需要提供一些更详细的配置.</p>
+
+<p>在很多语言中这很容易; 在 C 族语言中, 可以使用不同数量的参数提供相同函数的多个版本; 在像 PHP 这样的语言中, 可以给参数一个默认值，并在调用方法时忽略它们. 但是在 Golang 中, 这两种方式你哪个也用不了. 那么你如何创建一个函数, 用户可以指定一些额外的配置?</p>
+
+<p>有很多可能的方法可以做到这一点, 但是大多数都不能满足要求, 或者需要在服务端的代码中进行额外的检查和验证, 或者通过传递额外的客户端不关心的参数来为客户端做额外的工作.</p>
+
+<p>我将介绍一些不同的方案, 并说明为什么每个都不是最理想的, 然后我们将建立我们自己的方式来作为最终干净的解决方案: 函数式选项模式 (Functional Options Patter).</p>
+
+<p>我们来看一个例子. 比方说, 我们有一些名为 StuffClient 的服务, 它有一些东西, 并有两个配置选项(timeout 和 retries):</p>
+
+<pre><code>type StuffClient interface {
+    DoStuff() error
+}
+type stuffClient struct {
+    conn    Connection
+    timeout int
+    retries int
+}</code></pre>
+
+<p>结构体 stuffClient 是私有的, 所以我们应该为它提供一些构造器:</p>
+
+<pre><code>func NewStuffClient(conn Connection, timeout, retries int) StuffClient {
+    return &stuffClient{
+        conn:    conn,
+        timeout: timeout,
+        retries: retries,
+    }
+}</code></pre>
+
+<p>嗯, 但是现在我们每次调用 NewStuffClient 时都要提供 timeout 和 retries. 而大多数时候我们只想使用默认值. 我们不能用不同的参数数量来定义多个版本的 NewStuffClient, 否则我们会得到一个类似 &quot;NewStuffClient redeclared in this blockt&quot; 的编译错误.</p>
+
+<p>一个方案是创建另一个不同名称的构造器:</p>
+
+<pre><code>func NewStuffClient(conn Connection) StuffClient {
+    return &stuffClient{
+        conn:    conn,
+        timeout: DEFAULT_TIMEOUT,
+        retries: DEFAULT_RETRIES,
+    }
+}
+func NewStuffClientWithOptions(conn Connection, timeout, retries int) StuffClient {
+    return &stuffClient{
+        conn:    conn,
+        timeout: timeout,
+        retries: retries,
+    }
+}</code></pre>
+
+<p>但是, 这有点蹩脚. 我们可以做得比这更好. 如果我们传入了一个配置对象呢:</p>
+
+<pre><code>type StuffClientOptions struct {
+    Retries int //number of times to retry the request before giving up
+    Timeout int //connection timeout in seconds
+}
+func NewStuffClient(conn Connection, options StuffClientOptions) StuffClient {
+    return &stuffClient{
+        conn:    conn,
+        timeout: options.Timeout,
+        retries: options.Retries,
+    }
+}</code></pre>
+
+<p>但是, 这也不是很好. 现在我们总是需要创建 StuffClientOptions, 并且即使我们不想指定任何选项也要传递它. 而且我们也没有自动填充默认值, 除非我们在代码中添加了一堆检查, 或者我们可以传入一个 DefaultStuffClientOptions 变量 (也不好, 因为它可以在一个地方修改导致其他地方有问题).</p>
+
+<p>那么解决方案是什么? 解决这个难题最好的方法是使用函数式选项模式, 利用 Go 对闭包的方便支持. 让我们继续我们上面定义的 StuffClientOptions, 但是我们会添加一些东西:</p>
+
+<pre><code>type StuffClientOption func(*StuffClientOptions)
+type StuffClientOptions struct {
+    Retries int //number of times to retry the request before giving up
+    Timeout int //connection timeout in seconds
+}
+func WithRetries(r int) StuffClientOption {
+    return func(o *StuffClientOptions) {
+        o.Retries = r
+    }
+}
+func WithTimeout(t int) StuffClientOption {
+    return func(o *StuffClientOptions) {
+        o.Timeout = t
+    }
+}</code></pre>
+
+<p>泥土般芬芳, 对吧? 究竟发生了什么? 基本上我们有我们的结构定义我们的 StuffClient 的可用选项. 另外现在我们定义了一个名为 StuffClientOption 的东东(这次是单数), 它只是一个接受我们的选项 struct 作为参数的函数. 我们已经定义了另外一些函数 WithRetries 和 WithTimeout, 它们返回一个闭包. 现在魔法降临:</p>
+
+<pre><code>var defaultStuffClientOptions = StuffClientOptions{
+    Retries: 3,
+    Timeout: 2,
+}
+func NewStuffClient(conn Connection, opts ...StuffClientOption) StuffClient {
+    options := defaultStuffClientOptions
+    for _, o := range opts {
+        o(&options)
+    }
+    return &stuffClient{
+        conn:    conn,
+        timeout: options.Timeout,
+        retries: options.Retries,
+    }
+}</code></pre>
+
+<p>我们已经定义了一个额外的未导出(unexposed)变量, 包含我们的默认选项, 我们现在调整了我们的构造函数, 而不是接受一个可变参数. 然后, 我们遍历 StuffClientOption (单数) 列表, 并对每一项应用返回的闭包到我们的选项变量.</p>
+
+<p>现在我们要做的就是这样:</p>
+
+<pre><code>x := NewStuffClient(Connection{})
+fmt.Println(x) // prints &{{} 2 3}
+x = NewStuffClient(
+    Connection{},
+    WithRetries(1),
+)
+fmt.Println(x) // prints &{{} 2 1}
+x = NewStuffClient(
+    Connection{},
+    WithRetries(1),
+    WithTimeout(1),
+)
+fmt.Println(x) // prints &{{} 1 1}</code></pre>
+
+<p>这看起来相当不错而且可用. 而关于它的好的部分是, 我们可以随时添加新的选项, 只需要对代码进行非常少量的更改. 把这些都组合起来就是这样:</p>
+
+<pre><code>var defaultStuffClientOptions = StuffClientOptions{
+    Retries: 3,
+    Timeout: 2,
+}
+type StuffClientOption func(*StuffClientOptions)
+type StuffClientOptions struct {
+    Retries int //number of times to retry the request before giving up
+    Timeout int //connection timeout in seconds
+}
+func WithRetries(r int) StuffClientOption {
+    return func(o *StuffClientOptions) {
+        o.Retries = r
+    }
+}
+func WithTimeout(t int) StuffClientOption {
+    return func(o *StuffClientOptions) {
+        o.Timeout = t
+    }
+}
+type StuffClient interface {
+    DoStuff() error
+}
+type stuffClient struct {
+    conn    Connection
+    timeout int
+    retries int
+}
+type Connection struct {}
+func NewStuffClient(conn Connection, opts ...StuffClientOption) StuffClient {
+    options := defaultStuffClientOptions
+    for _, o := range opts {
+        o(&options)
+    }
+        return &stuffClient{
+            conn:    conn,
+            timeout: options.Timeout,
+            retries: options.Retries,
+        }
+}
+func (c stuffClient) DoStuff() error {
+    return nil
+}</code></pre>
+
+<p>如果你想自己尝试一下, 去 <a href="https://play.golang.org/p/VcWqWcAEyz" >Go Playground</a> 吧.</p>
+
+<p>但是可以通过删除 StuffClientOptions 结构并直接将选项应用到我们的 StuffClient 来进一步简化.</p>
+
+<pre><code>var defaultStuffClient = stuffClient{
+    retries: 3,
+    timeout: 2,
+}
+type StuffClientOption func(*stuffClient)
+func WithRetries(r int) StuffClientOption {
+    return func(o *stuffClient) {
+        o.retries = r
+    }
+}
+func WithTimeout(t int) StuffClientOption {
+    return func(o *stuffClient) {
+        o.timeout = t
+    }
+}
+type StuffClient interface {
+    DoStuff() error
+}
+type stuffClient struct {
+    conn    Connection
+    timeout int
+    retries int
+}
+type Connection struct{}
+func NewStuffClient(conn Connection, opts ...StuffClientOption) StuffClient {
+    client := defaultStuffClient
+    for _, o := range opts {
+        o(&client)
+    }
+
+    client.conn = conn
+    return client
+}
+func (c stuffClient) DoStuff() error {
+    return nil
+}</code></pre>
+
+<p>可以在<a href="https://play.golang.org/p/Z5P5Om4KDL" >这里</a>尝试一下. 在我们的示例中, 我们只是直接将配置应用到我们的结构中, 在中间有一个额外的配置结构是没有意义的. 但是请注意, 在许多情况下, 您可能仍然想使用前面示例中的 config 结构体; 例如, 如果你的构造器使用配置选项来执行一些操作, 但不把它们存储到结构中, 或者传递到其他地方. 配置结构变体是更通用的实现.</p>
+
+<p>感谢 Rob Pike 和 Dave Cheney 推广这种设计模式.</p>
+ ]]></description> </item><item> <title>Go work-stealing 调度器</title> <link>https://lingchao.xin/post/gos-work-stealing-scheduler.html</link> <pubDate>2018-01-31 14:35:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/gos-work-stealing-scheduler.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文译自 Rakyll 的 <a href="https://rakyll.org/scheduler/" >scheduler</a>版权@归原文所有.
+<!--more--></p>
+
+<p>Go 调度器的工作是将可运行的 goroutine 分发到一个或多个处理器上运行的多个操作系统工作线程.
+在多线程计算里, 调度出现了两种模式: work-sharing (工作共享) 和 work-stealing (工作窃取).</p>
+
+<ul>
+<li><strong>work-sharing</strong> 当一个处理器产生新的线程时, 它试图将其中的一些迁移到其他处理器上, 希望它们能被空闲或未充分利用的处理器所利用.</li>
+<li><strong>work-stealing</strong> 未充分利用的处理器会主动去寻找其他处理器的线程并 <code>窃取</code> 一些.</li>
+</ul>
+
+<p>work-stealing 中线程迁移的频率少于 work-sharing. 当所有处理器都有工作要运行时, 没有线程会被迁移. 而一旦有空闲的处理器, 就会考虑迁移.</p>
+
+<p>Go 从 1.1 开始就有一个 work-stealing 的调度器, 由 <a href="https://github.com/dvyukov" >Dmitry Vyukov</a> 贡献. 本文将深入解释什么是 work-stealing 调度器, 以及 Go 如何实现它.</p>
+
+<h4>调度基础</h4>
+
+<p>Go 有一个可以利用多核处理器的 M:N 调度器. 任何时候, M 个 goroutine 都需要在 N 个 OS 线程上进行调度, 这些线程运行在最多 GOMAXPROCS 数量的处理器上.
+Go 调度器使用以下术语解释 goroutine, 线程以及处理器:</p>
+
+<ul>
+<li>G: goroutine</li>
+<li>M: OS 线程 (机器)</li>
+<li>P: 处理器 (译者: 此处不是指 CPU, 可以认为是 Go 调度上下文或调度处理器, 所以下文的处理器如无特别说明都是指 P)</li>
+</ul>
+
+<p>有一个 P 相关的本地和全局 goroutine 队列. 每个 M 应该被分配给一个 P. 如果被阻塞或者在系统调用中, P (们) 可能没有 M (们). 任何时候，最多只有 GOMAXPROCS 数量的 P. 任何时候, 每个 P 只能有一个 M 运行. 如果需要, 更多的 M (们) 可以由调度器创建.</p>
+
+<p><img src="/static/images/scheduler-concepts.png" width="782" height="358" /></p>
+
+<p>每轮调度只是简单找到一个可运行的 goroutine 并执行它. 在每轮调度中, 搜索按以下顺序进行:</p>
+
+<pre><code>runtime.schedule() {
+    // only 1/61 of the time, check the global runnable queue for a G. 仅 1/61 的时间, 检查全局运行队列里面的 G.
+    // if not found, check the local queue. 如果没找到, 检查本地队列.
+    // if not found, 还是没找到 ?
+    //     try to steal from other Ps. 尝试从其他 P 偷.
+    //     if not, check the global runnable queue. 还是没有, 检查全局运行队列.
+    //     if not found, poll network. 还是没有, 轮询网络.
+}</code></pre>
+
+<p>一旦找到可运行的 G, 它会一直执行直到被阻塞.</p>
+
+<p><strong>注意</strong> 看起来好像全局队列比本地队列有优势, 但是偶尔检查全局队列是至关重要的, 以避免 M 只是从本地队列调度, 直到没有本地排队的 goroutine 留下.</p>
+
+<h4>Stealing (窃取)</h4>
+
+<p>当一个新的 G 被创建或者一个现有的 G 变成可运行的时候, 它被压入当前 P 的可运行的 goroutine 列表. 当 P 完成 G 时, 它会尝试从自己的可运行 goroutine 列表中弹出一个 G. 如果列表现在是空的, P 会随机的选择其他的 P, 并尝试从其队列中偷取一半可运行的 goroutine(s).</p>
+
+<p><img src="/static/images/scheduler-stealing.png" width="782" height="409" /></p>
+
+<p>在上面的例子中, P2 找不到任何可运行的 goroutine. 因此, 它随机选择另一个 P1, 并将其三个 goroutine(s) 窃取到自己的本地队列中. P2 将能够运行这些 goroutine, 并且调度器的工作会在多个处理器之间更加公平地分配.</p>
+
+<h4>自旋线程 (Spinning threads)</h4>
+
+<p>调度器总是希望将尽可能多的可运行的 goroutine(s) 分配给 M (们) 来利用处理器, 但是同时我们需要停留过多的工作来节省 CPU 和电力. 与此相矛盾的是, 调度器还需要能够扩展到高吞吐量和 CPU 密集型的程序.
+如果性能是至关重要的, 那么对高吞吐量程序来说持续抢占既是昂贵又是有问题的. 操作系统线程不应该频繁地在 goroutine(s) 之间切换, 因为这会增加延迟. 除此之外, 在发生系统调用的时候, 操作系统线程需要不断地被阻塞和解除阻塞. 这是昂贵的, 并增加了很多开销.</p>
+
+<p>为了尽量减少切换, Go 调度器实现了 <code>自旋线程</code>. 自旋线程消耗一点额外的 CPU, 但是它们最小化了 OS 线程的抢占. 一个线程是自旋的, 如果:</p>
+
+<ul>
+<li>分配了 P 的 M 正在寻找一个可执行 goroutine;</li>
+<li>没有分配 P 的 M 正在寻找可用的 P;</li>
+<li>调度器还会释放一个附加的线程, 当它正准备一个 goroutine 并且没有空闲的 P 也没有其他自旋线程的时候让它自旋.</li>
+</ul>
+
+<p>任何时候最多有 GOMAXPROCS 个自旋的 M (们). 当一个自旋的线程找到工作, 它就脱离了自旋状态.</p>
+
+<p>如果有空闲的 M 没有被赋予 P, 那么被赋予 P 的空闲线程不会被阻塞. 当新的 goroutine(s) 被创建或 M 被阻塞时, 调度器确保至少有一个自旋 M. 这确保了没有可运行的 goroutine(s) 不被运行; 并且避免过多的 M 阻塞或者解除阻塞.</p>
+
+<h4>结论</h4>
+
+<p>Go 调度器做了很多事情来避免过多的操作系统线程抢占, 通过窃取(stealing)调度它们到正确和未充分利用的处理器, 以及实现 <code>自旋</code> 线程以避免过高阻塞或者解除阻塞切换的发生.</p>
+
+<p>调度事件可以用执行追踪器(<a href="https://golang.org/cmd/trace/" >execution tracer</a>)追踪. 如果你碰巧认为自己的处理器利用率很差, 则可以用它探究发生了什么事情.</p>
+
+<h5>参考资料</h5>
+
+<ul>
+<li><a href="https://github.com/golang/go/blob/master/src/runtime/proc.go" >Go 运行时调度器源码</a></li>
+<li><a href="https://golang.org/s/go11sched" >可扩展 Go 调度器设计文档</a></li>
+<li><a href="https://morsmachine.dk/go-scheduler" >Daniel Morsing: Go 调度器</a></li>
+</ul>
+ ]]></description> </item><item> <title>Go 谚语</title> <link>https://lingchao.xin/post/go-proverbs.html</link> <pubDate>2018-01-28 09:25:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/go-proverbs.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文译自<a href="http://go-proverbs.github.io/" >go-proverbs</a>, 脱胎于 Rob Pike 振奋人心的演讲视频 <a href="https://www.youtube.com/watch?v=PAAkCSZUG1c" >talk at Gopherfest SV 2015</a> (<a href="https://www.bilibili.com/video/av18889438/" >bilibili</a>).</p>
+
+<h4>不要通过共享内存进行通信, 通过通信共享内存 (<a href="https://www.bilibili.com/video/av18889438/?t=2m48s" >Don't communicate by sharing memory, share memory by communicating</a>)</h4>
+
+<p>传统的线程模型（通常在编写 Java, C++ 和 Python 程序时使用）要求程序员使用共享内存在线程之间进行通信.
+通常, 共享数据结构受锁保护, 线程将争夺这些锁访问数据, 在某些情况下, 通过使用 Python 的 Queue 等线程安全的数据结构可以使这变得更容易.</p>
+
+<p>Go 的并发原语 (goroutines 和 channels) 为构造并发软件提供了一种优雅而独特的手段.
+(这些概念有一个有趣的历史, 要从 C.A.R.Hoare 的通信顺序进程说起.) Go 鼓励使用 channels 在 goroutines 之间传递对数据的引用, 而不是显式地使用锁来调解对共享数据的访问.
+这种方法确保只有一个 goroutine 可以在给定的时间访问数据. 这个概念总结在 Effective Go 文档中 (任何 Go 程序员都必须阅读).</p>
+
+<p>Go 官方博客中有一篇文章对该谚语解读, 可以参见<a href="https://blog.golang.org/share-memory-by-communicating" >原文</a>.</p>
+
+<h4>并发不是并行 (<a href="https://www.bilibili.com/video/av18889438/?t=3m42s" >Concurrency is not parallelism</a>)</h4>
+
+<p>当人们听到 <em>并发</em> 这个词的时候, 他们经常会想到并行, 这是一个相关的, 但非常独特的概念. 在编程中, 并发是独立执行的进程的组成, 而并行则是 (可能相关的) 计算的同时执行. 并发是一次处理很多事情. 并行是一次做很多事情.</p>
+
+<h4>Channels 重排序; 互斥量串行化 (<a href="https://www.bilibili.com/video/av18889438/?t=4m20s" >Channels orchestrate; mutexes serialize</a>)</h4>
+
+<p>这个看中文（翻译待商榷）是不是一脸懵 (虽然英文也看不懂) ? 其实分号前后说的是一个意思, 该谚语按我的个人理解可以用 go 程序 (来自 <a href="https://github.com/golang/tour/blob/master/content/concurrency/channels.go" >go tour</a>) 解释成如下:</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func sum(s []int, c chan int) {
+    sum := 0
+    for _, v := range s {
+        sum += v
+    }
+    c &lt;- sum // 此处如果改成互斥量一样可以做到
+}
+
+func main() {
+    s := []int{7, 2, 8, -9, 4, 0}
+
+    c := make(chan int)
+    go sum(s[:len(s)/2], c)
+    go sum(s[len(s)/2:], c)
+    x, y := &lt;-c, &lt;-c
+
+    fmt.Println(x, y, x+y)
+}</code></pre>
+
+<h4>接口越大, 抽象越弱 (<a href="https://www.bilibili.com/video/av18889438/?t=5m17s" >The bigger the interface, the weaker the abstraction</a>)</h4>
+
+<p>接口背后的概念是通过将对象的行为抽象为简单的契约来允许重用性. 虽然接口不是 Go 专有的, 但由于 Go 接口通常趋向于小型化, Go 程序员才广泛使用它们. 通常情况下, 一个接口只限于一到两个方法.</p>
+
+<p>Go io 包接口就是典型的例子.</p>
+
+<h4>充分利用零值 (<a href="https://www.bilibili.com/video/av18889438/?t=6m25s" >Make the zero value useful</a>)</h4>
+
+<p>零值的典型例子如 bytes.Buffer 和 sync.Mutex:</p>
+
+<pre><code>var buf bytes.Buffer
+buf.Write([]byte("hello"))
+fmt.Println(buf.String())
+
+var mu sync.Mutex
+mu.Lock()
+mu.Unlock()</code></pre>
+
+<p>这样看起来是不是感觉一点用没有 ? 如果这样呢 ?</p>
+
+<pre><code>type Map struct {
+    mu sync.RWMutex
+    // ...
+}
+
+func (m *Map) Set(k, v interface{}) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    if m.m == nil {
+        m.m = make(map[interface{}]interface{})
+    }
+    m.m[k] = v
+}</code></pre>
+
+<h4>interface{} 言之无物 (<a href="https://www.bilibili.com/video/av18889438/?t=7m36s" >interface{} says nothing</a>)</h4>
+
+<p>该谚语不是说 interface {} 不代表任何东西, 而是说该类型无静态检查以及调用时保证, 比如你的 func 接收一个 interface{} 类型, 你写的时候是可用的, 但是某个时间你进行了代码重构可能坏掉了.</p>
+
+<h4>Gofmt 的风格没有人喜欢, 但是 gofmt 是每个人的最爱 (<a href="https://www.bilibili.com/video/av18889438/?t=8m43s" >Gofmt's style is no one's favorite, yet gofmt is everyone's favorite</a>)</h4>
+
+<p>该谚语告诉我们少些风格之争, 用这些时间多写代码.</p>
+
+<h4>小复制好过小依赖 (<a href="https://www.bilibili.com/video/av18889438/?t=9m28s" >A little copying is better than a little dependency</a>)</h4>
+
+<p>简单说就是如果你可以手动撸小快代码就不要导入一个库去做, 比如 UUID:</p>
+
+<pre><code>// see: https://groups.google.com/d/msg/golang-nuts/d0nF_k4dSx4/rPGgfXv6QCoJ
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func main() {
+    f, _ := os.Open("/dev/urandom") // 演示用忽略 errcheck
+    b := make([]byte, 16)
+    f.Read(b)
+    f.Close()
+    uuid := fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+    fmt.Println(uuid)
+}</code></pre>
+
+<p>虽然有一堆写好的 UUID 库, 当你仅仅需要一个 UUID v4 实现.</p>
+
+<h4>系统调用必须始终使用构建标签保证 (<a href="https://www.bilibili.com/video/av18889438/?t=11m10s" >Syscall must always be guarded with build tags</a>)</h4>
+
+<p>不同的系统 (*NIX, Windows) 调用导致你同一个 func (实现并不一样) 可能需要在不同的系统上构建才能得到你想要的结果. 简单说就是系统调用不可移植才这么干. 示例可参见 Go 标准库 syscall.</p>
+
+<h4>Cgo 必须始终使用构建标签保证 (<a href="https://www.bilibili.com/video/av18889438/?t=11m53s" >Cgo must always be guarded with build tags</a>)</h4>
+
+<p>基本上原因同上一条.</p>
+
+<h4>Cgo 不是 Go (<a href="https://www.bilibili.com/video/av18889438/?t=12m37s" >Cgo is not Go</a>)</h4>
+
+<p>如果可能不要用 Cgo. 这里有篇<a href="https://dave.cheney.net/2016/01/18/cgo-is-not-go" >文章</a>说明了为什么.</p>
+
+<h4>unsafe 包无保证 (With the unsafe package there are no guarantees)</h4>
+
+<p>包如其名, 不安全. 你可以使用 unsafe 包如果你准备好了有一天它会坏掉.</p>
+
+<h4>清晰好过聪明 (<a href="https://www.bilibili.com/video/av18889438/?t=14m35s" >Clear is better than clever</a>)</h4>
+
+<p>Rob Pike 在他与别人合著的 &lt;<a href="https://item.jd.com/11836053.html" >程序设计实践</a>&gt; 中写到: &quot;写清晰的代码, 不要写聪明的代码&quot;.</p>
+
+<h4>反射永远不是清晰的 (<a href="https://www.bilibili.com/video/av18889438/?t=15m22s" >Reflection is never clear</a>)</h4>
+
+<p>很多人在 Stackoverflow 上抱怨 Go 的反射不工作, 因为那不是为你准备的😂! 只有很少很少的人应该用反射这个非常强大而又非常难的特性. 新手应该远离反射和 interface{}.</p>
+
+<h4>错误也是一种值 (<a href="https://www.bilibili.com/video/av18889438/?t=16m13s" >Errors are values</a>)</h4>
+
+<p>值可以被编程, 并且由于错误是值, 所以错误可以被编程. Go 官方博客有对此的<a href="https://blog.golang.org/errors-are-values" >解读</a>.</p>
+
+<h4>不要止步于检查错误而要优雅的处理 (<a href="https://www.bilibili.com/video/av18889438/?t=17m25s" >Don't just check errors, handle them gracefully</a>)</h4>
+
+<p>Dave Cheney 有篇<a href="https://dave.cheney.net/2016/04/27/dont-just-check-errors-handle-them-gracefully" >博客</a>详细解读了该谚语.</p>
+
+<h4>设计架构, 命名组件, 记录细节 (<a href="https://www.bilibili.com/video/av18889438/?t=18m09s" >Design the architecture, name the components, document the details</a>)</h4>
+
+<p>当你写一个大型系统的时候, 你把它设计成一种结构化的东西. 想象组件的每一个部分并行工作, 为不同的组件起好的名字, 因为这些名字会出现在稿纸上.</p>
+
+<p>拿 Go 程序来说, 如果名字不错, 组件就好理解, 那么程序的结构设计就会清晰, 程序会感觉很自然.</p>
+
+<p>但是还有很多东西你需要解释, 所以这些是你需要解释的细节. 但是命名会帮助你解释很大一部分设计. 细节只是填补材料的缺口可能用来为用户打印工程图解文档.</p>
+
+<h4>文档是针对用户的 (<a href="https://www.bilibili.com/video/av18889438/?t=19m07s" >Documentation is for users</a>)</h4>
+
+<p>很多人写文档表明某个 func 是做什么的, 但是他们不想想这个 func 是为谁而写. 这有很大的不同. 你知道这个 func 返回什么是对的, 但是它为什么返回了你使用的时候不一样的结果?</p>
+
+<p>把自己当成使用者而不是写它的人, 那么 godoc 上的文档就是对用户有用的. 这对于其他语言一样适用.</p>
+
+<h4>不要慌 (<a href="https://github.com/golang/go/wiki/CodeReviewComments#dont-panic" >Don't panic</a>)</h4>
+
+<p>不要使用 panic 进行正常的错误处理. 使用错误 (error) 和多个返回值.</p>
+ ]]></description> </item><item> <title>Go 调度工作机制</title> <link>https://lingchao.xin/post/how-does-the-golang-scheduler-work.html</link> <pubDate>2018-01-27 13:25:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/how-does-the-golang-scheduler-work.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文是来自 Quora 上面一个 Go 相关的<a href="https://www.quora.com/How-does-the-golang-scheduler-work/answer/Ian-Lance-Taylor?share=508736a1&srid=imO0" >问题</a>.
+<!--more--></p>
+
+<p>下面是 Ian Lance Taylor (Go 核心开发者兼资深元老) 给出的答案:</p>
+
+<blockquote>
+<p>我将给出从 Go 1.7 开始使用的调度器的概述.</p>
+
+<p>调度器有三个基本结构, 称为 G, M 和 P. 一个 G 是一个 goroutine, 一个 M 是一个操作系统线程, 一个 P 是一个(逻辑)处理器.</p>
+
+<p>调度器有确切的 GOMAXPROCS 数量的 P (GOMAXPROCS是一个环境变量和运行时函数, 用来设置程序中的并发度).
+为了让 M 执行一个 G, 它必须获得一个P, 然后运行 G 直到停止. G 通过进行诸如 I/O 操作的系统调用, 阻塞一个 channel 操作, 调用 C 函数, 正在被预抢占(pre-emption)或其他一些小的情况来停止.
+一个 G 只能在一个安全的地方被预抢占, 在当前的实现中只能在代码发生函数调用的时候发生.</p>
+
+<p>当一个 G 被类似于一个 channel 操作那样阻塞时, 它将被放置在一个队列中, M 将寻找另一个可运行的 G . 如果没有可运行的 G, 则 M 将释放 P 并进入睡眠状态.</p>
+
+<p>当 G 完成系统调用时, 必须重新获取 P. 如果没有 P 可用, 它将被标记为可运行, M 将进入睡眠状态.</p>
+
+<p>当 channel 操作成功时, 它会唤醒另一个 goroutine, 将其标记为可运行, 并且如果有可用的 P, 则唤醒 M 来运行它.</p>
+
+<p>虽然垃圾收集器大多是并发的, 但有几点要暂时停止所有的线程才能安全地转移到下一个收集阶段. 它通过标记所有正在运行的 goroutine 来预抢占.
+当他们到达安全点时, G 和 M 将进入睡眠. 当垃圾收集器是唯一剩下的正在运行的 G 时, 它将移动到下一个阶段, 然后唤醒 GOMAXPROC 数量的 M, 它们将各自找到可运行的 G, 并继续下去.</p>
+
+<p>runtime.Gosched 函数促使 M 将当前的 G 放在可运行的 goroutine 列表中, 并从该列表中选择一个新的 G 开始运行.</p>
+</blockquote>
+
+<p>我认为这是所有要点.</p>
+ ]]></description> </item><item> <title>MySQL 中 Order By 按特定的字段值排序</title> <link>https://lingchao.xin/post/ordering-by-specific-field-values-with-mysql.html</link> <pubDate>2018-01-25 11:55:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/ordering-by-specific-field-values-with-mysql.html</guid> <category><![CDATA[ mysql ]]></category> <description><![CDATA[ <p>本文译自(<a href="https://www.electrictoolbox.com/mysql-order-specific-field-values/" >Ordering by specific field values with MySQL</a>)版权@归原文所有</p>
+
+<p>在 SQL 查询中可能有时需要使用 ASC 或 DESC 或使用特殊排序字段才能完成的特定顺序. MySQL 有一个 ORDER BY FIELD 函数可以用来做这个.
+<!--more--></p>
+
+<h3>测试数据</h3>
+
+<p>本文中的示例数据使用我的示例 <a href="https://www.electrictoolbox.com/mysql-example-table/" >fruit</a> 表. 这是一个有点简单的表, 但它可以用来很好地说明这篇文章中的观点.</p>
+
+<h3>按特定字段值排序</h3>
+
+<p>fruit 表有一个 name 字段, 具有以下特定的值: 苹果(Apple), 香蕉(Banana), 橘子(Orange), 梨(Pear). 每个特定的值都有一系列的品种.</p>
+
+<p>比方说, 为了论证的缘故, 我们要按香蕉, 苹果, 梨, 橘子等特定的顺序排列数据, 然后再按品种排序.
+使用普通的 ORDER BY 子句不可能这样做, 因为这个字段的升序或降序排序不起作用. 我们要么需要某种形式的排序列或进行其他选择.</p>
+
+<p>在 ORDER BY 子句中使用 FIELD 函数可以实现这一点. 它的工作方式是指定要排序的列, 然后按顺序排序它们的值. 例如:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Banana', 'Apple', 'Pear', 'Orange'), variety;</code></pre>
+
+<p>来自示例表的结果数据如下所示:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        2 | Pear   | Comice              |
+|        5 | Orange | Blood               |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
++----------+--------+---------------------+</code></pre>
+
+<h3>疑难杂症</h3>
+
+<p>使用此功能时有一个小小的 <code>疑难杂症</code>. 列中不在 FIELD 函数中的任何值将在指定的值之前或多或少随机出现. 例如, 只指定苹果和香蕉:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Banana', 'Apple') DESC, variety;</code></pre>
+
+<p>这导致:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        5 | Orange | Blood               |
+|        2 | Pear   | Comice              |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
++----------+--------+---------------------+</code></pre>
+
+<h3>解决问题的方法</h3>
+
+<p>虽然通常只有在确切的列已知的情况下才使用此函数, 但解决方法是颠倒指定字段的顺序并按降序对其排序, 然后在同一个字段上进行第二次排序.</p>
+
+<p>下面的例子, 不管它看起来如何，实际上按照香蕉, 苹果, 然后按照升序排列:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Apple', 'Banana') DESC, name, variety;</code></pre>
+
+<p>这导致:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|        5 | Orange | Blood               |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        2 | Pear   | Comice              |
++----------+--------+---------------------+</code></pre>
+
+<p>如果一组特定的行需要显示在结果集中的其他行之前, 这可能是一个有用的解决方案, 但是当使用 ASC 或 DESC 排序顺序时, 通常不会出现在第一行.</p>
+ ]]></description> </item><item> <title>Golang 内幕第 2 部分: 命名返回值的好处</title> <link>https://lingchao.xin/post/golang-internals-part-2-nice-benefits-of-named-return-values.html</link> <pubDate>2018-01-22 17:42:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/golang-internals-part-2-nice-benefits-of-named-return-values.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文译自(<a href="https://blog.minio.io/golang-internals-part-2-nice-benefits-of-named-return-values-1e95305c8687" >Golang 内幕第 2 部分: 命名返回值的好处</a>)版权@归原文所有</p>
+
+<p>你可能知道 Golang 提供了命名返回值的能力. 到目前为止在 <a href="https://github.com/minio/minio" >minio</a> 中我们还没有使用这个功能, 但是这将会改变, 因为我们将在这个博客文章中解释一些隐藏的好处.
+<!--more--></p>
+
+<p>如果你像我们一样, 你可能会有相当数量的代码, 如下所示, 对于每一个 return 语句你都实例化一个新的对象, 以便返回一个'默认'值:</p>
+
+<pre><code>type objectInfo struct {
+    arg1 int64
+    arg2 uint64
+    arg3 string
+    arg4 []int
+}
+func NoNamedReturnParams(i int) (objectInfo) {
+
+    if i == 1 {
+        // Do one thing
+        return objectInfo{}
+    }
+
+    if i == 2 {
+        // Do another thing
+        return objectInfo{}
+    }
+
+    if i == 3 {
+        // Do one more thing still
+        return objectInfo{}
+    }
+
+    // Normal return
+    return objectInfo{}
+}</code></pre>
+
+<p>如果你看一下 Golang 编译器生成的实际代码, 你将会得到如下的结果:</p>
+
+<pre><code>"".NoNamedReturnParams t=1 size=243 args=0x40 locals=0x0
+0x0000  TEXT    "".NoNamedReturnParams(SB), $0-64
+0x0000  MOVQ    $0, "".~r1+16(FP)
+0x0009  LEAQ    "".~r1+24(FP), DI
+0x000e  XORPS   X0, X0
+0x0011  ADDQ    $-16, DI
+0x0015  DUFFZERO    $288
+0x0028  MOVQ    "".i+8(FP), AX
+0x002d  CMPQ    AX, $1
+0x0031  JEQ $0, 199
+0x0037  CMPQ    AX, $2
+0x003b  JEQ $0, 155
+0x003d  CMPQ    AX, $3
+0x0041  JNE 111
+0x0043  MOVQ    "".statictmp_2(SB), AX
+0x004a  MOVQ    AX, "".~r1+16(FP)
+0x004f  LEAQ    "".~r1+24(FP), DI
+0x0054  LEAQ    "".statictmp_2+8(SB), SI
+0x005b  DUFFCOPY    $854
+0x006e  RET
+0x006f  MOVQ    "".statictmp_3(SB), AX
+0x0076  MOVQ    AX, "".~r1+16(FP)
+0x007b  LEAQ    "".~r1+24(FP), DI
+0x0080  LEAQ    "".statictmp_3+8(SB), SI
+0x0087  DUFFCOPY    $854
+0x009a  RET
+0x009b  MOVQ    "".statictmp_1(SB), AX
+0x00a2  MOVQ    AX, "".~r1+16(FP)
+0x00a7  LEAQ    "".~r1+24(FP), DI
+0x00ac  LEAQ    "".statictmp_1+8(SB), SI
+0x00b3  DUFFCOPY    $854
+0x00c6  RET
+0x00c7  MOVQ    "".statictmp_0(SB), AX
+0x00ce  MOVQ    AX, "".~r1+16(FP)
+0x00d3  LEAQ    "".~r1+24(FP), DI
+0x00d8  LEAQ    "".statictmp_0+8(SB), SI
+0x00df  DUFFCOPY    $854
+0x00f2  RET</code></pre>
+
+<p>一切都很好, 但这看起来是否有点重复? 你是对的. 实质上, 对于每个 return 语句, 要返回的对象或多或少被分配/初始化(或者通过 DUFFCOPY 宏更精确地复制).</p>
+
+<p>毕竟这是我们通过在每种情况下都返回 objectInfo {} 的结果.</p>
+
+<h3>命名返回值</h3>
+
+<p>现在看看如果我们做一个非常简单的改变会发生什么, 本质上只是给返回值一个名字 (oi) 和使用 Golang 的'裸体'返回特性(为返回语句放弃参数, 虽然这不是严格要求, 稍后更多):</p>
+
+<pre><code>func NamedReturnParams(i int) (oi objectInfo) {
+
+    if i == 1 {
+        // Do one thing
+        return
+    }
+
+    if i == 2 {
+        // Do another thing
+        return
+    }
+
+    if i == 3 {
+        // Do one more thing still
+        return
+    }
+
+    // Normal return
+    return
+}</code></pre>
+
+<p>再看看编译器生成的代码, 我们得到以下结果:</p>
+
+<pre><code>"".NamedReturnParams t=1 size=67 args=0x40 locals=0x0
+    0x0000  TEXT    "".NamedReturnParams(SB), $0-64
+    0x0000  MOVQ    $0, "".oi+16(FP)
+    0x0009  LEAQ    "".oi+24(FP), DI
+    0x000e  XORPS   X0, X0
+    0x0011  ADDQ    $-16, DI
+    0x0015  DUFFZERO    $288
+    0x0028  MOVQ    "".i+8(FP), AX
+    0x002d  CMPQ    AX, $1
+    0x0031  JEQ $0, 66
+    0x0033  CMPQ    AX, $2
+    0x0037  JEQ $0, 65
+    0x0039  CMPQ    AX, $3
+    0x003d  JNE 64
+    0x003f  RET
+    0x0040  RET
+    0x0041  RET
+    0x0042  RET</code></pre>
+
+<p>这是一个非常大的差异, 所有四个对象初始化和 DUFFCOPY 这些东西消失(甚至对于这个微不足道的情况)了. 它将函数的大小从 243 减小到 67 字节. 另外作为一个额外的好处, 你将省去一些 CPU 周期退出, 因为不需要做任何事情来设置返回值.</p>
+
+<p>请注意, 如果您不喜欢或偏好 Golang 提供的裸返回, 则可以使用 return oi, 同时还可以获得相同的好处, 如下所示:</p>
+
+<pre><code>if i == 1 {
+    return oi
+}</code></pre>
+
+<h3>minio 服务器中真实世界的例子</h3>
+
+<p>我们拿 minio server 的例子更进一步:</p>
+
+<pre><code>// parse credentialHeader string into its structured form.
+func parseCredentialHeader(credElement string) (credentialHeader) {
+    creds := strings.Split(strings.TrimSpace(credElement), "=")
+    if len(creds) != 2 {
+    return credentialHeader{}
+    }
+    if creds[0] != "Credential" {
+    return credentialHeader{}
+    }
+    credElements := strings.Split(strings.TrimSpace(creds[1]), "/")
+    if len(credElements) != 5 {
+    return credentialHeader{}
+    }
+    if false /*!isAccessKeyValid(credElements[0])*/ {
+    return credentialHeader{}
+    }
+    // Save access key id.
+    cred := credentialHeader{
+    accessKey: credElements[0],
+    }
+    var e error
+    cred.scope.date, e = time.Parse(yyyymmdd, credElements[1])
+    if e != nil {
+    return credentialHeader{}
+    }
+    cred.scope.region = credElements[2]
+    if credElements[3] != "s3" {
+    return credentialHeader{}
+    }
+    cred.scope.service = credElements[3]
+    if credElements[4] != "aws4_request" {
+    return credentialHeader{}
+    }
+    cred.scope.request = credElements[4]
+    return cred
+}</code></pre>
+
+<p>深入汇编我们得到以下的函数头:</p>
+
+<pre><code>"".parseCredentialHeader t=1 size=1157 args=0x68 locals=0xb8</code></pre>
+
+<p>如果我们修改代码来使用一个命名返回参数(下面的第二个源代码块), 请检查函数的大小:</p>
+
+<pre><code>"".parseCredentialHeader t=1 size=863 args=0x68 locals=0xb8 </code></pre>
+
+<p>它从总共 1150 个字节中删除了 300 个字节, 这对于源代码这样一个最小的改变还不错. 取决于你从哪里来，你也可能更喜欢源代码的更干净的外观:</p>
+
+<pre><code>// parse credentialHeader string into its structured form.
+func parseCredentialHeader(credElement string) (ch credentialHeader) {
+    creds := strings.Split(strings.TrimSpace(credElement), "=")
+    if len(creds) != 2 {
+    return
+    }
+    if creds[0] != "Credential" {
+    return
+    }
+    credElements := strings.Split(strings.TrimSpace(creds[1]), "/")
+    if len(credElements) != 5 {
+    return
+    }
+    if false /*!isAccessKeyValid(credElements[0])*/ {
+    return
+    }
+    // Save access key id.
+    cred := credentialHeader{
+    accessKey: credElements[0],
+    }
+    var e error
+    cred.scope.date, e = time.Parse(yyyymmdd, credElements[1])
+    if e != nil {
+    return
+    }
+    cred.scope.region = credElements[2]
+    if credElements[3] != "s3" {
+    return
+    }
+    cred.scope.service = credElements[3]
+    if credElements[4] != "aws4_request" {
+    return
+    }
+    cred.scope.request = credElements[4]
+    return cred
+}</code></pre>
+
+<p>请注意, 实际上 ch 变量是一个正常的局部变量, 就像在函数中定义的任何其他局部变量一样. 因此, 您可以将其值从默认的'零'状态更改(当然, 修改后的版本将在退出时返回).</p>
+
+<h3>命名返回值的其他用法</h3>
+
+<p>正如几位人士指出的那样, 指定返回值的另一个好处是可以在闭包中使用(即 defer 语句). 因此, 可以在作为 defer 语句的结果调用的函数中访问指定的返回值, 并相应地进行操作.</p>
+
+<h3>关于这个系列</h3>
+
+<p>如果你错过了本系列的第一部分, 这里是一个链接:</p>
+
+<ul>
+<li>关于 <a href="https://blog.minio.io/golang-internals-part-1-autogenerated-functions-and-how-to-get-rid-of-them-6ca4749cc236" >autogenerated</a> 函数</li>
+</ul>
+
+<h3>结论</h3>
+
+<p>所以我们将逐渐采用命名的返回值, 无论是新代码还是现有代码.</p>
+
+<p>事实上, 我们也在研究是否可以开发一些小工具来帮助或自动化这个过程. 按照 gofmt 的思路思考, 然后自动修改源代码以进行上面所述的更改.
+特别是在返回值还没有被命名的情况下(因此实用程序必须给它一个名字), 这个返回变量在现有的源代码中以任何方式改变都是不可能的, ch (在上面列表的情况下)不会导致程序的任何功能变化.</p>
+
+<p>所以请继续关注.</p>
+
+<p>我们希望这篇文章能对你有所帮助, 并提供一些关于 Go 如何在内部运行以及如何改进 Golang 代码的新见解.</p>
+
+<h3>更新</h3>
+
+<p>已经有一个 Golang <a href="https://github.com/golang/go/issues/20859" >issue</a> 来优化编译器为上述情况生成相同的代码, 这将是一件好事.</p>
+ ]]></description> </item><item> <title>Go 没有传引用</title> <link>https://lingchao.xin/post/there-is-no-pass-by-reference-in-go.html</link> <pubDate>2018-01-15 16:05:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/there-is-no-pass-by-reference-in-go.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p>本文译自(<a href="https://dave.cheney.net/2017/04/29/there-is-no-pass-by-reference-in-go" >Go 没有传引用</a>)版权@归原文所有.
+<!--more--></p>
+
+<p>要清楚的是, Go 没有引用变量, 所以 Go 没有传递引用函数的调用语义.</p>
+
+<h3>什么是引用变量(reference variable) ?</h3>
+
+<p>在像 C++ 这样的语言中, 你可以声明一个别名, 或者一个现有变量的替代名称. 这被称为引用变量.</p>
+
+<pre><code><span class="code"><span class="special">#include &lt;stdio.h&gt;
+</span>
+<span class="symbol">int</span> main<span class="paren1">(<span class="code"></span>)</span> <span class="paren1">{<span class="code">
+        <span class="symbol">int</span> a = 10;
+        <span class="symbol">int</span> &amp;b = a;
+        <span class="symbol">int</span> &amp;c = b;
+
+        printf<span class="paren2">(<span class="code"><span class="string">"%p %p %p</span><span class="string">\n</span><span class="string">"</span>, &amp;a, &amp;b, &amp;c</span>)</span>; <span class="comment">// 0x7ffe114f0b14 0x7ffe114f0b14 0x7ffe114f0b14
+</span>        <span class="symbol">return</span> 0;
+</span>}</span></span></code></pre>
+
+<p>你可以看到 a, b 和 c 都指向相同的内存位置. 写入 a 会改变 b 和 c 的内容. 当你想在函数调用不同的作用域声明引用变量时, 这是很有用的.</p>
+
+<h3>Go 没有引用变量</h3>
+
+<p>与 C++ 不同, Go 程序中定义的每个变量都占用一个唯一的内存位置.</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func main() {
+        var a, b, c int
+        fmt.Println(&a, &b, &c) // 0x1040a124 0x1040a128 0x1040a12c
+}</code></pre>
+
+<p>创建一个两个变量在内存中共享相同的存储位置的 Go 程序是不可能的. 可以创建两个变量, 其内容指向相同的存储位置, 但与共享相同存储位置的两个变量不同.</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func main() {
+        var a int
+        var b, c = &a, &a
+        fmt.Println(b, c)   // 0x1040a124 0x1040a124
+        fmt.Println(&b, &c) // 0x1040c108 0x1040c110
+}</code></pre>
+
+<p>在这个例子中, b 和 c 保持相同的值, 即 a 的地址. 但是, b 和 c 本身存储在不同的位置. 更新 b 的内容对 c 没有影响.</p>
+
+<h3>但是 map 和 channel 是引用吗 ?</h3>
+
+<p>错, map 和 channel 不是引用. 如果他们是, 那么下面这个程序将打印 false .</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func fn(m map[int]int) {
+        m = make(map[int]int)
+}
+
+func main() {
+        var m map[int]int
+        fn(m)
+        fmt.Println(m == nil)
+}</code></pre>
+
+<p>如果map m 是一个 C++ 风格的引用变量, 则在 main 中声明的 m 和 在 fn 中声明的 m 将在内存中占据相同的存储位置. 但是, 因为对 fn 内的 m 的赋值对 m 的值没有影响, 所以我们可以看到 m 不是引用变量.</p>
+
+<h3>结论</h3>
+
+<p>Go 没有传递引用语义, 因为 Go 没有引用变量.</p>
+ ]]></description> </item><item> <title>为什么 Golang 垃圾回收器不实现分代和紧凑 gc</title> <link>https://lingchao.xin/post/why-golang-garbage-collector-not-implement-generational-and-compact-gc.html</link> <pubDate>2018-01-13 16:30:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/why-golang-garbage-collector-not-implement-generational-and-compact-gc.html</guid> <category><![CDATA[ go ]]></category><category><![CDATA[ gc ]]></category> <description><![CDATA[ <p>本文译自 Google 论坛(<a href="https://groups.google.com/forum/#!msg/golang-nuts/KJiyv2mV2pU/wdBUH1mHCAAJ" >golang-nuts</a>)版权@归原文所有.</p>
+
+<p>有人在论坛里面问: 为什么 Golang 垃圾回收器不实现分代和紧凑 gc ?
+<!--more--></p>
+
+<p>Ian Lance Taylor 的回复:</p>
+
+<blockquote>
+<p>这已经在过去讨论过了.</p>
+
+<p>忽略细节, 紧凑(compacting) GC 的基本优点是:</p>
+
+<ul>
+<li>避免碎片, 以及;</li>
+<li>允许使用简单而有效的凹凸分配器(bump allocator).</li>
+</ul>
+
+<p>但是, 现代的内存分配算法, 象 Go 运行时使用的基于 tcmalloc 的方案基本上没有碎片问题.
+而凹凸分配器对于 Go 这样需要锁的多线程程序中的单线程程序是简单有效的.
+一般来说, 这可能更多有效地使用一组每个线程缓存来分配内存, 而在这一点上你已经失去了凹凸分配器的优势.
+所以我会断言, 一般来说有很多注意事项导致今天没有真正的优势为一个多线程程序使用压缩内存分配器.
+我不是说使用压缩分配器有什么问题, 我只是认为它相对于非压缩的来说没有带来任何大的优势.</p>
+
+<p>现在我们来考虑一下分代 GC. 分代 GC 的关键依赖于世代的假设: 分配在一个程序中的大部分值很快变得不会用到, 所以分代 GC 有一个优势就是可以花更多的时间查看最近分配的对象.
+这里 Go 不同于许多垃圾收集语言, 因为许多对象是直接在程序栈(stack)上分配的. Go 编译器使用逃逸分析(escape analysis)来查找那些在编译时生命周期就已知的对象, 将它们分配到堆栈而不是垃圾收集的内存中.
+所以一般来说, 在 Go 中, 与其他语言相比, 有很大比例的分代 GC 要找的很快不会用到的(quickly-unused)值不会分配在 GC 内存的首要位置.
+所以分代 GC 能给 Go 带来的优势相对于其他语言要小.</p>
+
+<p>更微妙的是, 大多数世代 GC 实现的隐藏点是减少垃圾收集带来的程序暂停的时间.
+暂停期间只看最年轻的一代, 暂停时间很短. 然而, Go 使用了一个并发垃圾收集器, 并且在 Go 中程序暂停时间与年轻代或者任意代的大小无关.
+Go 基本上假设, 在多线程程序中, 通过在不同的核上并行运行 GC, 不是为了最小化 GC 时间去暂停导致程序运行更长的时间, 而是总体上花更多的总 CPU 时间在 GC 上.</p>
+
+<p>总之, 分代 GC 可能仍然可以为 Go 带来显著的价值, 即减少并行 GC 时的工作量. 这是一个需要测试的假设. Go 当前的 GC 工作实际上正在密切关注一个相关但不同的假设: Go 程序可能倾向于按请求分配内存.
+<a href="https://docs.google.com/document/d/1gCsFxXamW8RRvOe5hECz98Ftk-tcRRJcDFANj2VwCB0/view" >这里</a>有一个描述. 这项工作正在进行中, 现实情况是否有利还有待观察.</p>
+</blockquote>
+ ]]></description> </item><item> <title>Go Range 循环内幕</title> <link>https://lingchao.xin/post/go-range-loop-internals.html</link> <pubDate>2018-01-10 20:20:04</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/go-range-loop-internals.html</guid> <category><![CDATA[ go ]]></category> <description><![CDATA[ <p><a href="https://garbagecollected.org/2017/02/22/go-range-loop-internals/" >译文</a>版权@归原文所有.</p>
+
+<p>虽然他们非常方便, 但我总是发现 Go 的 Range 循环有点神秘. 我并不是第一个:
+<!--more--></p>
+
+<pre><code>// http://bit.ly/2CXC1Ob 来自 Dave Cheney.
+package main
+
+func main() {
+    v := []int{1, 2, 3}
+    for i := range v {
+        v = append(v, i)
+    }
+}</code></pre>
+
+<p>现在我可以把这些事实记录下来, 但是我很可能会忘记. 为了有更好的机会记住这个, 我需要找出为什么 range 循环会这样. 所以我写了这篇文章.</p>
+
+<h3>Step 1: 读手册(RTFM)</h3>
+
+<p>我们首先应该去读 range 循环文档. Go语言规范文档在 <a href="https://golang.org/ref/spec#For_statements" >for 语句</a>部分的 <em>For 语句和 range 子句</em>描述了 range 循环.
+我不会在这里复制整个规范，我会总结一些有趣的部分.</p>
+
+<p>首先, 让我们提醒自己我们在这里看到什么:</p>
+
+<pre><code>for i := range a {
+    fmt.Println(i)
+}</code></pre>
+
+<h4>Range 变量</h4>
+
+<p>你们中的大多数人会知道, 在 Range 子句的左边(上面的例子中的 i), 你可以这样分配循环变量:</p>
+
+<ul>
+<li>分配 (=)</li>
+<li>短变量声明 (:=)</li>
+</ul>
+
+<p>您也可以选择完全忽略循环变量.</p>
+
+<p>如果使用短变量声明样式分配(:=), 则 Go 将在循环的每个迭代中重用变量(仅在循环内的范围内).</p>
+
+<h4>Range 表达式</h4>
+
+<p>在 Range 子句的右边(上面的例子中的 a), 你可以找到他们称之为 Range 表达式的东西. 它可以包含任何表达式, 其计算结果如下:</p>
+
+<ul>
+<li>数组(array)</li>
+<li>指向数组的指针</li>
+<li>切片(slice)</li>
+<li>字符串(string)</li>
+<li>字典(map)</li>
+<li>允许接收的管道(channel), 如: chan int 或者 chan&lt;- int</li>
+</ul>
+
+<p><strong>Range 表达式在开始循环之前只计算一次</strong>. 请注意, 这个规则有一个例外: 如果 Range 一个数组(或指向它的指针), 你只能分配索引：那么只有 len(a) 被计算.
+仅计算 len(a) 意味着可以在编译时计算表达式 a, 并由编译器用常量替换. <a href="https://golang.org/ref/spec#Length_and_capacity" >len 函数规范</a>解释如下:</p>
+
+<blockquote>
+<p>如果s的类型是数组或指向数组的指针并且表达式 s 不包含通道接收(channel receives) 或(非 常量) 函数调用, 则表达式 len(s) 和 cap(s) 是常量. 在这种情况下 s 不被计算. 否则, len 和 cap 的调用不是常量, 而是被计算.</p>
+</blockquote>
+
+<p>那么 &quot;计算(evaluated)&quot; 究竟意味着什么呢? 不幸的是我不能在规范中找到这个信息. 当然, 我可以猜测, 这意味着完全执行表达式, 直到它不能进一步减少. 在任何情况下, 这里的高位是 Range 表达式在循环开始之前计算一次. 你如何只评估一个表达式仅一次? 通过将其分配给一个变量! 这可能是这里发生的事情吗?</p>
+
+<p>有趣的是, 这个规范提到了一些关于从 map 中添加和删除的特殊的东西(没有提到切片):</p>
+
+<blockquote>
+<p>如果在迭代过程中移除尚未到达的 map 项, 则不会生成相应的迭代值. 如果迭代过程中创建 map 项, 那么可能会在迭代过程中生成该项, 或者可能会跳过该项.</p>
+</blockquote>
+
+<p>我稍后会回到 map.</p>
+
+<h3>Step 2: Range 支持的数据类型</h3>
+
+<p>如果我们假设 Range 表达式在循环开始之前被赋值了一次, 那么这是什么意思? 答案是它取决于数据类型, 所以让我们仔细看一下 Range 所支持的数据类型.</p>
+
+<p>在我们这样做之前, 请记住这一点: <strong>在 Go 中, 您分配的所有东西都被复制</strong>. 如果您分配一个指针, 则复制指针.如果你分配一个结构体, 则复制结构.将参数传递给函数时也是如此. 无论如何, 这里是:</p>
+
+<p>// TODO</p>
+
+<p>请参阅本文底部的参考资料, 了解更多关于这些数据类型的内部结构.</p>
+
+<p>那么这是什么意思? 这些例子突出了一些差异:</p>
+
+<pre><code>// copies the entire array
+var a [10]int
+acopy := a
+
+// copies the slice header struct only, NOT the backing array
+s := make([]int, 10)
+scopy := s
+
+// copies the map pointer only
+m := make(map[string]int)
+mcopy := m</code></pre>
+
+<p>所以如果在一个 Range 循环的开始处, 你可以将一个数组表达式赋值给一个变量(以确保它只能计算一次), 那么你将复制整个数组.</p>
+
+<h3>Step 3: Go 编译器源码</h3>
+
+<p>(未完待续)</p>
+ ]]></description> </item><item> <title>2017 已逝</title> <link>https://lingchao.xin/post/2017-has-passed.html</link> <pubDate>2017-12-31 15:26:20</pubDate> <author>Lingchao Xin</author> <guid isPermaLink="true">https://lingchao.xin/post/2017-has-passed.html</guid> <category><![CDATA[ note ]]></category> <description><![CDATA[ <h3>2017 的目标实现了吗</h3>
+
+<!--more-->
+
+<p>先回顾一下 2017 年的目标:</p>
+
+<ul>
+<li><p><em>Go</em> 语言继续趁手</p></li>
+<li><p><em>Kotlin</em> 修炼, 捎带 <em>Java 8</em></p></li>
+<li><p><em>Python 3.6</em> 特性加持</p></li>
+<li><p><em>OCaml</em> 把玩</p></li>
+</ul>
+
+<p>除了 Go 语言继续趁手, 其他的真的没所谓了.</p>
+
+<h3>现实会给你以教训</h3>
+
+<p>2017 年不管对于工作还是生活真的让我涨见识了;</p>
+
+<ul>
+<li><p>好好活着;</p></li>
+<li><p>走出舒适区;</p></li>
+<li><p>野心需要技能匹配;</p></li>
+</ul>
+
+<h3>2018 年做好自己</h3>
+
+<ul>
+<li><p>简单与优雅正交, 写清晰的代码, 做简单的事, Go 继续趁手;</p></li>
+<li><p>认准的事情就干, 不骄不躁;</p></li>
+<li><p>逼一下自己;</p></li>
+</ul>
+ ]]></description> </item> </channel> </rss>

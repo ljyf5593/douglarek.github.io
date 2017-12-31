@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Go 没有传引用</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a> </div>
+<div class="date">
+Written on 2018-01-15 16:05:04 </div>
+</div>
+<div class="article-content">
+<p>本文译自(<a href="https://dave.cheney.net/2017/04/29/there-is-no-pass-by-reference-in-go" >Go 没有传引用</a>)版权@归原文所有.
+<!--more--></p>
+
+<p>要清楚的是, Go 没有引用变量, 所以 Go 没有传递引用函数的调用语义.</p>
+
+<h3>什么是引用变量(reference variable) ?</h3>
+
+<p>在像 C++ 这样的语言中, 你可以声明一个别名, 或者一个现有变量的替代名称. 这被称为引用变量.</p>
+
+<pre><code><span class="code"><span class="special">#include &lt;stdio.h&gt;
+</span>
+<span class="symbol">int</span> main<span class="paren1">(<span class="code"></span>)</span> <span class="paren1">{<span class="code">
+        <span class="symbol">int</span> a = 10;
+        <span class="symbol">int</span> &amp;b = a;
+        <span class="symbol">int</span> &amp;c = b;
+
+        printf<span class="paren2">(<span class="code"><span class="string">"%p %p %p</span><span class="string">\n</span><span class="string">"</span>, &amp;a, &amp;b, &amp;c</span>)</span>; <span class="comment">// 0x7ffe114f0b14 0x7ffe114f0b14 0x7ffe114f0b14
+</span>        <span class="symbol">return</span> 0;
+</span>}</span></span></code></pre>
+
+<p>你可以看到 a, b 和 c 都指向相同的内存位置. 写入 a 会改变 b 和 c 的内容. 当你想在函数调用不同的作用域声明引用变量时, 这是很有用的.</p>
+
+<h3>Go 没有引用变量</h3>
+
+<p>与 C++ 不同, Go 程序中定义的每个变量都占用一个唯一的内存位置.</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func main() {
+        var a, b, c int
+        fmt.Println(&a, &b, &c) // 0x1040a124 0x1040a128 0x1040a12c
+}</code></pre>
+
+<p>创建一个两个变量在内存中共享相同的存储位置的 Go 程序是不可能的. 可以创建两个变量, 其内容指向相同的存储位置, 但与共享相同存储位置的两个变量不同.</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func main() {
+        var a int
+        var b, c = &a, &a
+        fmt.Println(b, c)   // 0x1040a124 0x1040a124
+        fmt.Println(&b, &c) // 0x1040c108 0x1040c110
+}</code></pre>
+
+<p>在这个例子中, b 和 c 保持相同的值, 即 a 的地址. 但是, b 和 c 本身存储在不同的位置. 更新 b 的内容对 c 没有影响.</p>
+
+<h3>但是 map 和 channel 是引用吗 ?</h3>
+
+<p>错, map 和 channel 不是引用. 如果他们是, 那么下面这个程序将打印 false .</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func fn(m map[int]int) {
+        m = make(map[int]int)
+}
+
+func main() {
+        var m map[int]int
+        fn(m)
+        fmt.Println(m == nil)
+}</code></pre>
+
+<p>如果map m 是一个 C++ 风格的引用变量, 则在 main 中声明的 m 和 在 fn 中声明的 m 将在内存中占据相同的存储位置. 但是, 因为对 fn 内的 m 的赋值对 m 的值没有影响, 所以我们可以看到 m 不是引用变量.</p>
+
+<h3>结论</h3>
+
+<p>Go 没有传递引用语义, 因为 Go 没有引用变量.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/why-golang-garbage-collector-not-implement-generational-and-compact-gc.html">Previous</a><br>
+<a href="https://lingchao.xin/post/golang-internals-part-2-nice-benefits-of-named-return-values.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

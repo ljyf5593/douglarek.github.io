@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">MySQL 中 Order By 按特定的字段值排序</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/mysql.html">mysql</a> </div>
+<div class="date">
+Written on 2018-01-25 11:55:04 </div>
+</div>
+<div class="article-content">
+<p>本文译自(<a href="https://www.electrictoolbox.com/mysql-order-specific-field-values/" >Ordering by specific field values with MySQL</a>)版权@归原文所有</p>
+
+<p>在 SQL 查询中可能有时需要使用 ASC 或 DESC 或使用特殊排序字段才能完成的特定顺序. MySQL 有一个 ORDER BY FIELD 函数可以用来做这个.
+<!--more--></p>
+
+<h3>测试数据</h3>
+
+<p>本文中的示例数据使用我的示例 <a href="https://www.electrictoolbox.com/mysql-example-table/" >fruit</a> 表. 这是一个有点简单的表, 但它可以用来很好地说明这篇文章中的观点.</p>
+
+<h3>按特定字段值排序</h3>
+
+<p>fruit 表有一个 name 字段, 具有以下特定的值: 苹果(Apple), 香蕉(Banana), 橘子(Orange), 梨(Pear). 每个特定的值都有一系列的品种.</p>
+
+<p>比方说, 为了论证的缘故, 我们要按香蕉, 苹果, 梨, 橘子等特定的顺序排列数据, 然后再按品种排序.
+使用普通的 ORDER BY 子句不可能这样做, 因为这个字段的升序或降序排序不起作用. 我们要么需要某种形式的排序列或进行其他选择.</p>
+
+<p>在 ORDER BY 子句中使用 FIELD 函数可以实现这一点. 它的工作方式是指定要排序的列, 然后按顺序排序它们的值. 例如:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Banana', 'Apple', 'Pear', 'Orange'), variety;</code></pre>
+
+<p>来自示例表的结果数据如下所示:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        2 | Pear   | Comice              |
+|        5 | Orange | Blood               |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
++----------+--------+---------------------+</code></pre>
+
+<h3>疑难杂症</h3>
+
+<p>使用此功能时有一个小小的 <code>疑难杂症</code>. 列中不在 FIELD 函数中的任何值将在指定的值之前或多或少随机出现. 例如, 只指定苹果和香蕉:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Banana', 'Apple') DESC, variety;</code></pre>
+
+<p>这导致:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        5 | Orange | Blood               |
+|        2 | Pear   | Comice              |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
++----------+--------+---------------------+</code></pre>
+
+<h3>解决问题的方法</h3>
+
+<p>虽然通常只有在确切的列已知的情况下才使用此函数, 但解决方法是颠倒指定字段的顺序并按降序对其排序, 然后在同一个字段上进行第二次排序.</p>
+
+<p>下面的例子, 不管它看起来如何，实际上按照香蕉, 苹果, 然后按照升序排列:</p>
+
+<pre><code>SELECT * FROM fruit
+ORDER BY FIELD(name, 'Apple', 'Banana') DESC, name, variety;</code></pre>
+
+<p>这导致:</p>
+
+<pre><code>+----------+--------+---------------------+
+| fruit_id | name   | variety             |
++----------+--------+---------------------+
+|       11 | Banana | Burro               |
+|       12 | Banana | Cavendish           |
+|       10 | Banana | Plantain            |
+|        6 | Apple  | Cox's Orange Pippin |
+|        7 | Apple  | Granny Smith        |
+|        1 | Apple  | Red Delicious       |
+|        5 | Orange | Blood               |
+|        3 | Orange | Navel               |
+|        9 | Orange | Valencia            |
+|        8 | Pear   | Anjou               |
+|        4 | Pear   | Bartlett            |
+|        2 | Pear   | Comice              |
++----------+--------+---------------------+</code></pre>
+
+<p>如果一组特定的行需要显示在结果集中的其他行之前, 这可能是一个有用的解决方案, 但是当使用 ASC 或 DESC 排序顺序时, 通常不会出现在第一行.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/golang-internals-part-2-nice-benefits-of-named-return-values.html">Previous</a><br>
+<a href="https://lingchao.xin/post/how-does-the-golang-scheduler-work.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

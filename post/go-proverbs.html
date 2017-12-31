@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Go 谚语</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a> </div>
+<div class="date">
+Written on 2018-01-28 09:25:04 </div>
+</div>
+<div class="article-content">
+<p>本文译自<a href="http://go-proverbs.github.io/" >go-proverbs</a>, 脱胎于 Rob Pike 振奋人心的演讲视频 <a href="https://www.youtube.com/watch?v=PAAkCSZUG1c" >talk at Gopherfest SV 2015</a> (<a href="https://www.bilibili.com/video/av18889438/" >bilibili</a>).</p>
+
+<h4>不要通过共享内存进行通信, 通过通信共享内存 (<a href="https://www.bilibili.com/video/av18889438/?t=2m48s" >Don't communicate by sharing memory, share memory by communicating</a>)</h4>
+
+<p>传统的线程模型（通常在编写 Java, C++ 和 Python 程序时使用）要求程序员使用共享内存在线程之间进行通信.
+通常, 共享数据结构受锁保护, 线程将争夺这些锁访问数据, 在某些情况下, 通过使用 Python 的 Queue 等线程安全的数据结构可以使这变得更容易.</p>
+
+<p>Go 的并发原语 (goroutines 和 channels) 为构造并发软件提供了一种优雅而独特的手段.
+(这些概念有一个有趣的历史, 要从 C.A.R.Hoare 的通信顺序进程说起.) Go 鼓励使用 channels 在 goroutines 之间传递对数据的引用, 而不是显式地使用锁来调解对共享数据的访问.
+这种方法确保只有一个 goroutine 可以在给定的时间访问数据. 这个概念总结在 Effective Go 文档中 (任何 Go 程序员都必须阅读).</p>
+
+<p>Go 官方博客中有一篇文章对该谚语解读, 可以参见<a href="https://blog.golang.org/share-memory-by-communicating" >原文</a>.</p>
+
+<h4>并发不是并行 (<a href="https://www.bilibili.com/video/av18889438/?t=3m42s" >Concurrency is not parallelism</a>)</h4>
+
+<p>当人们听到 <em>并发</em> 这个词的时候, 他们经常会想到并行, 这是一个相关的, 但非常独特的概念. 在编程中, 并发是独立执行的进程的组成, 而并行则是 (可能相关的) 计算的同时执行. 并发是一次处理很多事情. 并行是一次做很多事情.</p>
+
+<h4>Channels 重排序; 互斥量串行化 (<a href="https://www.bilibili.com/video/av18889438/?t=4m20s" >Channels orchestrate; mutexes serialize</a>)</h4>
+
+<p>这个看中文（翻译待商榷）是不是一脸懵 (虽然英文也看不懂) ? 其实分号前后说的是一个意思, 该谚语按我的个人理解可以用 go 程序 (来自 <a href="https://github.com/golang/tour/blob/master/content/concurrency/channels.go" >go tour</a>) 解释成如下:</p>
+
+<pre><code>package main
+
+import "fmt"
+
+func sum(s []int, c chan int) {
+    sum := 0
+    for _, v := range s {
+        sum += v
+    }
+    c &lt;- sum // 此处如果改成互斥量一样可以做到
+}
+
+func main() {
+    s := []int{7, 2, 8, -9, 4, 0}
+
+    c := make(chan int)
+    go sum(s[:len(s)/2], c)
+    go sum(s[len(s)/2:], c)
+    x, y := &lt;-c, &lt;-c
+
+    fmt.Println(x, y, x+y)
+}</code></pre>
+
+<h4>接口越大, 抽象越弱 (<a href="https://www.bilibili.com/video/av18889438/?t=5m17s" >The bigger the interface, the weaker the abstraction</a>)</h4>
+
+<p>接口背后的概念是通过将对象的行为抽象为简单的契约来允许重用性. 虽然接口不是 Go 专有的, 但由于 Go 接口通常趋向于小型化, Go 程序员才广泛使用它们. 通常情况下, 一个接口只限于一到两个方法.</p>
+
+<p>Go io 包接口就是典型的例子.</p>
+
+<h4>充分利用零值 (<a href="https://www.bilibili.com/video/av18889438/?t=6m25s" >Make the zero value useful</a>)</h4>
+
+<p>零值的典型例子如 bytes.Buffer 和 sync.Mutex:</p>
+
+<pre><code>var buf bytes.Buffer
+buf.Write([]byte("hello"))
+fmt.Println(buf.String())
+
+var mu sync.Mutex
+mu.Lock()
+mu.Unlock()</code></pre>
+
+<p>这样看起来是不是感觉一点用没有 ? 如果这样呢 ?</p>
+
+<pre><code>type Map struct {
+    mu sync.RWMutex
+    // ...
+}
+
+func (m *Map) Set(k, v interface{}) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    if m.m == nil {
+        m.m = make(map[interface{}]interface{})
+    }
+    m.m[k] = v
+}</code></pre>
+
+<h4>interface{} 言之无物 (<a href="https://www.bilibili.com/video/av18889438/?t=7m36s" >interface{} says nothing</a>)</h4>
+
+<p>该谚语不是说 interface {} 不代表任何东西, 而是说该类型无静态检查以及调用时保证, 比如你的 func 接收一个 interface{} 类型, 你写的时候是可用的, 但是某个时间你进行了代码重构可能坏掉了.</p>
+
+<h4>Gofmt 的风格没有人喜欢, 但是 gofmt 是每个人的最爱 (<a href="https://www.bilibili.com/video/av18889438/?t=8m43s" >Gofmt's style is no one's favorite, yet gofmt is everyone's favorite</a>)</h4>
+
+<p>该谚语告诉我们少些风格之争, 用这些时间多写代码.</p>
+
+<h4>小复制好过小依赖 (<a href="https://www.bilibili.com/video/av18889438/?t=9m28s" >A little copying is better than a little dependency</a>)</h4>
+
+<p>简单说就是如果你可以手动撸小快代码就不要导入一个库去做, 比如 UUID:</p>
+
+<pre><code>// see: https://groups.google.com/d/msg/golang-nuts/d0nF_k4dSx4/rPGgfXv6QCoJ
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func main() {
+    f, _ := os.Open("/dev/urandom") // 演示用忽略 errcheck
+    b := make([]byte, 16)
+    f.Read(b)
+    f.Close()
+    uuid := fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+    fmt.Println(uuid)
+}</code></pre>
+
+<p>虽然有一堆写好的 UUID 库, 当你仅仅需要一个 UUID v4 实现.</p>
+
+<h4>系统调用必须始终使用构建标签保证 (<a href="https://www.bilibili.com/video/av18889438/?t=11m10s" >Syscall must always be guarded with build tags</a>)</h4>
+
+<p>不同的系统 (*NIX, Windows) 调用导致你同一个 func (实现并不一样) 可能需要在不同的系统上构建才能得到你想要的结果. 简单说就是系统调用不可移植才这么干. 示例可参见 Go 标准库 syscall.</p>
+
+<h4>Cgo 必须始终使用构建标签保证 (<a href="https://www.bilibili.com/video/av18889438/?t=11m53s" >Cgo must always be guarded with build tags</a>)</h4>
+
+<p>基本上原因同上一条.</p>
+
+<h4>Cgo 不是 Go (<a href="https://www.bilibili.com/video/av18889438/?t=12m37s" >Cgo is not Go</a>)</h4>
+
+<p>如果可能不要用 Cgo. 这里有篇<a href="https://dave.cheney.net/2016/01/18/cgo-is-not-go" >文章</a>说明了为什么.</p>
+
+<h4>unsafe 包无保证 (With the unsafe package there are no guarantees)</h4>
+
+<p>包如其名, 不安全. 你可以使用 unsafe 包如果你准备好了有一天它会坏掉.</p>
+
+<h4>清晰好过聪明 (<a href="https://www.bilibili.com/video/av18889438/?t=14m35s" >Clear is better than clever</a>)</h4>
+
+<p>Rob Pike 在他与别人合著的 &lt;<a href="https://item.jd.com/11836053.html" >程序设计实践</a>&gt; 中写到: &quot;写清晰的代码, 不要写聪明的代码&quot;.</p>
+
+<h4>反射永远不是清晰的 (<a href="https://www.bilibili.com/video/av18889438/?t=15m22s" >Reflection is never clear</a>)</h4>
+
+<p>很多人在 Stackoverflow 上抱怨 Go 的反射不工作, 因为那不是为你准备的😂! 只有很少很少的人应该用反射这个非常强大而又非常难的特性. 新手应该远离反射和 interface{}.</p>
+
+<h4>错误也是一种值 (<a href="https://www.bilibili.com/video/av18889438/?t=16m13s" >Errors are values</a>)</h4>
+
+<p>值可以被编程, 并且由于错误是值, 所以错误可以被编程. Go 官方博客有对此的<a href="https://blog.golang.org/errors-are-values" >解读</a>.</p>
+
+<h4>不要止步于检查错误而要优雅的处理 (<a href="https://www.bilibili.com/video/av18889438/?t=17m25s" >Don't just check errors, handle them gracefully</a>)</h4>
+
+<p>Dave Cheney 有篇<a href="https://dave.cheney.net/2016/04/27/dont-just-check-errors-handle-them-gracefully" >博客</a>详细解读了该谚语.</p>
+
+<h4>设计架构, 命名组件, 记录细节 (<a href="https://www.bilibili.com/video/av18889438/?t=18m09s" >Design the architecture, name the components, document the details</a>)</h4>
+
+<p>当你写一个大型系统的时候, 你把它设计成一种结构化的东西. 想象组件的每一个部分并行工作, 为不同的组件起好的名字, 因为这些名字会出现在稿纸上.</p>
+
+<p>拿 Go 程序来说, 如果名字不错, 组件就好理解, 那么程序的结构设计就会清晰, 程序会感觉很自然.</p>
+
+<p>但是还有很多东西你需要解释, 所以这些是你需要解释的细节. 但是命名会帮助你解释很大一部分设计. 细节只是填补材料的缺口可能用来为用户打印工程图解文档.</p>
+
+<h4>文档是针对用户的 (<a href="https://www.bilibili.com/video/av18889438/?t=19m07s" >Documentation is for users</a>)</h4>
+
+<p>很多人写文档表明某个 func 是做什么的, 但是他们不想想这个 func 是为谁而写. 这有很大的不同. 你知道这个 func 返回什么是对的, 但是它为什么返回了你使用的时候不一样的结果?</p>
+
+<p>把自己当成使用者而不是写它的人, 那么 godoc 上的文档就是对用户有用的. 这对于其他语言一样适用.</p>
+
+<h4>不要慌 (<a href="https://github.com/golang/go/wiki/CodeReviewComments#dont-panic" >Don't panic</a>)</h4>
+
+<p>不要使用 panic 进行正常的错误处理. 使用错误 (error) 和多个返回值.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/how-does-the-golang-scheduler-work.html">Previous</a><br>
+<a href="https://lingchao.xin/post/gos-work-stealing-scheduler.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Golang 内幕第 2 部分: 命名返回值的好处</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a> </div>
+<div class="date">
+Written on 2018-01-22 17:42:04 </div>
+</div>
+<div class="article-content">
+<p>本文译自(<a href="https://blog.minio.io/golang-internals-part-2-nice-benefits-of-named-return-values-1e95305c8687" >Golang 内幕第 2 部分: 命名返回值的好处</a>)版权@归原文所有</p>
+
+<p>你可能知道 Golang 提供了命名返回值的能力. 到目前为止在 <a href="https://github.com/minio/minio" >minio</a> 中我们还没有使用这个功能, 但是这将会改变, 因为我们将在这个博客文章中解释一些隐藏的好处.
+<!--more--></p>
+
+<p>如果你像我们一样, 你可能会有相当数量的代码, 如下所示, 对于每一个 return 语句你都实例化一个新的对象, 以便返回一个'默认'值:</p>
+
+<pre><code>type objectInfo struct {
+    arg1 int64
+    arg2 uint64
+    arg3 string
+    arg4 []int
+}
+func NoNamedReturnParams(i int) (objectInfo) {
+
+    if i == 1 {
+        // Do one thing
+        return objectInfo{}
+    }
+
+    if i == 2 {
+        // Do another thing
+        return objectInfo{}
+    }
+
+    if i == 3 {
+        // Do one more thing still
+        return objectInfo{}
+    }
+
+    // Normal return
+    return objectInfo{}
+}</code></pre>
+
+<p>如果你看一下 Golang 编译器生成的实际代码, 你将会得到如下的结果:</p>
+
+<pre><code>"".NoNamedReturnParams t=1 size=243 args=0x40 locals=0x0
+0x0000  TEXT    "".NoNamedReturnParams(SB), $0-64
+0x0000  MOVQ    $0, "".~r1+16(FP)
+0x0009  LEAQ    "".~r1+24(FP), DI
+0x000e  XORPS   X0, X0
+0x0011  ADDQ    $-16, DI
+0x0015  DUFFZERO    $288
+0x0028  MOVQ    "".i+8(FP), AX
+0x002d  CMPQ    AX, $1
+0x0031  JEQ $0, 199
+0x0037  CMPQ    AX, $2
+0x003b  JEQ $0, 155
+0x003d  CMPQ    AX, $3
+0x0041  JNE 111
+0x0043  MOVQ    "".statictmp_2(SB), AX
+0x004a  MOVQ    AX, "".~r1+16(FP)
+0x004f  LEAQ    "".~r1+24(FP), DI
+0x0054  LEAQ    "".statictmp_2+8(SB), SI
+0x005b  DUFFCOPY    $854
+0x006e  RET
+0x006f  MOVQ    "".statictmp_3(SB), AX
+0x0076  MOVQ    AX, "".~r1+16(FP)
+0x007b  LEAQ    "".~r1+24(FP), DI
+0x0080  LEAQ    "".statictmp_3+8(SB), SI
+0x0087  DUFFCOPY    $854
+0x009a  RET
+0x009b  MOVQ    "".statictmp_1(SB), AX
+0x00a2  MOVQ    AX, "".~r1+16(FP)
+0x00a7  LEAQ    "".~r1+24(FP), DI
+0x00ac  LEAQ    "".statictmp_1+8(SB), SI
+0x00b3  DUFFCOPY    $854
+0x00c6  RET
+0x00c7  MOVQ    "".statictmp_0(SB), AX
+0x00ce  MOVQ    AX, "".~r1+16(FP)
+0x00d3  LEAQ    "".~r1+24(FP), DI
+0x00d8  LEAQ    "".statictmp_0+8(SB), SI
+0x00df  DUFFCOPY    $854
+0x00f2  RET</code></pre>
+
+<p>一切都很好, 但这看起来是否有点重复? 你是对的. 实质上, 对于每个 return 语句, 要返回的对象或多或少被分配/初始化(或者通过 DUFFCOPY 宏更精确地复制).</p>
+
+<p>毕竟这是我们通过在每种情况下都返回 objectInfo {} 的结果.</p>
+
+<h3>命名返回值</h3>
+
+<p>现在看看如果我们做一个非常简单的改变会发生什么, 本质上只是给返回值一个名字 (oi) 和使用 Golang 的'裸体'返回特性(为返回语句放弃参数, 虽然这不是严格要求, 稍后更多):</p>
+
+<pre><code>func NamedReturnParams(i int) (oi objectInfo) {
+
+    if i == 1 {
+        // Do one thing
+        return
+    }
+
+    if i == 2 {
+        // Do another thing
+        return
+    }
+
+    if i == 3 {
+        // Do one more thing still
+        return
+    }
+
+    // Normal return
+    return
+}</code></pre>
+
+<p>再看看编译器生成的代码, 我们得到以下结果:</p>
+
+<pre><code>"".NamedReturnParams t=1 size=67 args=0x40 locals=0x0
+    0x0000  TEXT    "".NamedReturnParams(SB), $0-64
+    0x0000  MOVQ    $0, "".oi+16(FP)
+    0x0009  LEAQ    "".oi+24(FP), DI
+    0x000e  XORPS   X0, X0
+    0x0011  ADDQ    $-16, DI
+    0x0015  DUFFZERO    $288
+    0x0028  MOVQ    "".i+8(FP), AX
+    0x002d  CMPQ    AX, $1
+    0x0031  JEQ $0, 66
+    0x0033  CMPQ    AX, $2
+    0x0037  JEQ $0, 65
+    0x0039  CMPQ    AX, $3
+    0x003d  JNE 64
+    0x003f  RET
+    0x0040  RET
+    0x0041  RET
+    0x0042  RET</code></pre>
+
+<p>这是一个非常大的差异, 所有四个对象初始化和 DUFFCOPY 这些东西消失(甚至对于这个微不足道的情况)了. 它将函数的大小从 243 减小到 67 字节. 另外作为一个额外的好处, 你将省去一些 CPU 周期退出, 因为不需要做任何事情来设置返回值.</p>
+
+<p>请注意, 如果您不喜欢或偏好 Golang 提供的裸返回, 则可以使用 return oi, 同时还可以获得相同的好处, 如下所示:</p>
+
+<pre><code>if i == 1 {
+    return oi
+}</code></pre>
+
+<h3>minio 服务器中真实世界的例子</h3>
+
+<p>我们拿 minio server 的例子更进一步:</p>
+
+<pre><code>// parse credentialHeader string into its structured form.
+func parseCredentialHeader(credElement string) (credentialHeader) {
+    creds := strings.Split(strings.TrimSpace(credElement), "=")
+    if len(creds) != 2 {
+    return credentialHeader{}
+    }
+    if creds[0] != "Credential" {
+    return credentialHeader{}
+    }
+    credElements := strings.Split(strings.TrimSpace(creds[1]), "/")
+    if len(credElements) != 5 {
+    return credentialHeader{}
+    }
+    if false /*!isAccessKeyValid(credElements[0])*/ {
+    return credentialHeader{}
+    }
+    // Save access key id.
+    cred := credentialHeader{
+    accessKey: credElements[0],
+    }
+    var e error
+    cred.scope.date, e = time.Parse(yyyymmdd, credElements[1])
+    if e != nil {
+    return credentialHeader{}
+    }
+    cred.scope.region = credElements[2]
+    if credElements[3] != "s3" {
+    return credentialHeader{}
+    }
+    cred.scope.service = credElements[3]
+    if credElements[4] != "aws4_request" {
+    return credentialHeader{}
+    }
+    cred.scope.request = credElements[4]
+    return cred
+}</code></pre>
+
+<p>深入汇编我们得到以下的函数头:</p>
+
+<pre><code>"".parseCredentialHeader t=1 size=1157 args=0x68 locals=0xb8</code></pre>
+
+<p>如果我们修改代码来使用一个命名返回参数(下面的第二个源代码块), 请检查函数的大小:</p>
+
+<pre><code>"".parseCredentialHeader t=1 size=863 args=0x68 locals=0xb8 </code></pre>
+
+<p>它从总共 1150 个字节中删除了 300 个字节, 这对于源代码这样一个最小的改变还不错. 取决于你从哪里来，你也可能更喜欢源代码的更干净的外观:</p>
+
+<pre><code>// parse credentialHeader string into its structured form.
+func parseCredentialHeader(credElement string) (ch credentialHeader) {
+    creds := strings.Split(strings.TrimSpace(credElement), "=")
+    if len(creds) != 2 {
+    return
+    }
+    if creds[0] != "Credential" {
+    return
+    }
+    credElements := strings.Split(strings.TrimSpace(creds[1]), "/")
+    if len(credElements) != 5 {
+    return
+    }
+    if false /*!isAccessKeyValid(credElements[0])*/ {
+    return
+    }
+    // Save access key id.
+    cred := credentialHeader{
+    accessKey: credElements[0],
+    }
+    var e error
+    cred.scope.date, e = time.Parse(yyyymmdd, credElements[1])
+    if e != nil {
+    return
+    }
+    cred.scope.region = credElements[2]
+    if credElements[3] != "s3" {
+    return
+    }
+    cred.scope.service = credElements[3]
+    if credElements[4] != "aws4_request" {
+    return
+    }
+    cred.scope.request = credElements[4]
+    return cred
+}</code></pre>
+
+<p>请注意, 实际上 ch 变量是一个正常的局部变量, 就像在函数中定义的任何其他局部变量一样. 因此, 您可以将其值从默认的'零'状态更改(当然, 修改后的版本将在退出时返回).</p>
+
+<h3>命名返回值的其他用法</h3>
+
+<p>正如几位人士指出的那样, 指定返回值的另一个好处是可以在闭包中使用(即 defer 语句). 因此, 可以在作为 defer 语句的结果调用的函数中访问指定的返回值, 并相应地进行操作.</p>
+
+<h3>关于这个系列</h3>
+
+<p>如果你错过了本系列的第一部分, 这里是一个链接:</p>
+
+<ul>
+<li>关于 <a href="https://blog.minio.io/golang-internals-part-1-autogenerated-functions-and-how-to-get-rid-of-them-6ca4749cc236" >autogenerated</a> 函数</li>
+</ul>
+
+<h3>结论</h3>
+
+<p>所以我们将逐渐采用命名的返回值, 无论是新代码还是现有代码.</p>
+
+<p>事实上, 我们也在研究是否可以开发一些小工具来帮助或自动化这个过程. 按照 gofmt 的思路思考, 然后自动修改源代码以进行上面所述的更改.
+特别是在返回值还没有被命名的情况下(因此实用程序必须给它一个名字), 这个返回变量在现有的源代码中以任何方式改变都是不可能的, ch (在上面列表的情况下)不会导致程序的任何功能变化.</p>
+
+<p>所以请继续关注.</p>
+
+<p>我们希望这篇文章能对你有所帮助, 并提供一些关于 Go 如何在内部运行以及如何改进 Golang 代码的新见解.</p>
+
+<h3>更新</h3>
+
+<p>已经有一个 Golang <a href="https://github.com/golang/go/issues/20859" >issue</a> 来优化编译器为上述情况生成相同的代码, 这将是一件好事.</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/there-is-no-pass-by-reference-in-go.html">Previous</a><br>
+<a href="https://lingchao.xin/post/ordering-by-specific-field-values-with-mysql.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

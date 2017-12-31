@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Go Range 循环内幕</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a> </div>
+<div class="date">
+Written on 2018-01-10 20:20:04 </div>
+</div>
+<div class="article-content">
+<p><a href="https://garbagecollected.org/2017/02/22/go-range-loop-internals/" >译文</a>版权@归原文所有.</p>
+
+<p>虽然他们非常方便, 但我总是发现 Go 的 Range 循环有点神秘. 我并不是第一个:
+<!--more--></p>
+
+<pre><code>// http://bit.ly/2CXC1Ob 来自 Dave Cheney.
+package main
+
+func main() {
+    v := []int{1, 2, 3}
+    for i := range v {
+        v = append(v, i)
+    }
+}</code></pre>
+
+<p>现在我可以把这些事实记录下来, 但是我很可能会忘记. 为了有更好的机会记住这个, 我需要找出为什么 range 循环会这样. 所以我写了这篇文章.</p>
+
+<h3>Step 1: 读手册(RTFM)</h3>
+
+<p>我们首先应该去读 range 循环文档. Go语言规范文档在 <a href="https://golang.org/ref/spec#For_statements" >for 语句</a>部分的 <em>For 语句和 range 子句</em>描述了 range 循环.
+我不会在这里复制整个规范，我会总结一些有趣的部分.</p>
+
+<p>首先, 让我们提醒自己我们在这里看到什么:</p>
+
+<pre><code>for i := range a {
+    fmt.Println(i)
+}</code></pre>
+
+<h4>Range 变量</h4>
+
+<p>你们中的大多数人会知道, 在 Range 子句的左边(上面的例子中的 i), 你可以这样分配循环变量:</p>
+
+<ul>
+<li>分配 (=)</li>
+<li>短变量声明 (:=)</li>
+</ul>
+
+<p>您也可以选择完全忽略循环变量.</p>
+
+<p>如果使用短变量声明样式分配(:=), 则 Go 将在循环的每个迭代中重用变量(仅在循环内的范围内).</p>
+
+<h4>Range 表达式</h4>
+
+<p>在 Range 子句的右边(上面的例子中的 a), 你可以找到他们称之为 Range 表达式的东西. 它可以包含任何表达式, 其计算结果如下:</p>
+
+<ul>
+<li>数组(array)</li>
+<li>指向数组的指针</li>
+<li>切片(slice)</li>
+<li>字符串(string)</li>
+<li>字典(map)</li>
+<li>允许接收的管道(channel), 如: chan int 或者 chan&lt;- int</li>
+</ul>
+
+<p><strong>Range 表达式在开始循环之前只计算一次</strong>. 请注意, 这个规则有一个例外: 如果 Range 一个数组(或指向它的指针), 你只能分配索引：那么只有 len(a) 被计算.
+仅计算 len(a) 意味着可以在编译时计算表达式 a, 并由编译器用常量替换. <a href="https://golang.org/ref/spec#Length_and_capacity" >len 函数规范</a>解释如下:</p>
+
+<blockquote>
+<p>如果s的类型是数组或指向数组的指针并且表达式 s 不包含通道接收(channel receives) 或(非 常量) 函数调用, 则表达式 len(s) 和 cap(s) 是常量. 在这种情况下 s 不被计算. 否则, len 和 cap 的调用不是常量, 而是被计算.</p>
+</blockquote>
+
+<p>那么 &quot;计算(evaluated)&quot; 究竟意味着什么呢? 不幸的是我不能在规范中找到这个信息. 当然, 我可以猜测, 这意味着完全执行表达式, 直到它不能进一步减少. 在任何情况下, 这里的高位是 Range 表达式在循环开始之前计算一次. 你如何只评估一个表达式仅一次? 通过将其分配给一个变量! 这可能是这里发生的事情吗?</p>
+
+<p>有趣的是, 这个规范提到了一些关于从 map 中添加和删除的特殊的东西(没有提到切片):</p>
+
+<blockquote>
+<p>如果在迭代过程中移除尚未到达的 map 项, 则不会生成相应的迭代值. 如果迭代过程中创建 map 项, 那么可能会在迭代过程中生成该项, 或者可能会跳过该项.</p>
+</blockquote>
+
+<p>我稍后会回到 map.</p>
+
+<h3>Step 2: Range 支持的数据类型</h3>
+
+<p>如果我们假设 Range 表达式在循环开始之前被赋值了一次, 那么这是什么意思? 答案是它取决于数据类型, 所以让我们仔细看一下 Range 所支持的数据类型.</p>
+
+<p>在我们这样做之前, 请记住这一点: <strong>在 Go 中, 您分配的所有东西都被复制</strong>. 如果您分配一个指针, 则复制指针.如果你分配一个结构体, 则复制结构.将参数传递给函数时也是如此. 无论如何, 这里是:</p>
+
+<p>// TODO</p>
+
+<p>请参阅本文底部的参考资料, 了解更多关于这些数据类型的内部结构.</p>
+
+<p>那么这是什么意思? 这些例子突出了一些差异:</p>
+
+<pre><code>// copies the entire array
+var a [10]int
+acopy := a
+
+// copies the slice header struct only, NOT the backing array
+s := make([]int, 10)
+scopy := s
+
+// copies the map pointer only
+m := make(map[string]int)
+mcopy := m</code></pre>
+
+<p>所以如果在一个 Range 循环的开始处, 你可以将一个数组表达式赋值给一个变量(以确保它只能计算一次), 那么你将复制整个数组.</p>
+
+<h3>Step 3: Go 编译器源码</h3>
+
+<p>(未完待续)</p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/2017-has-passed.html">Previous</a><br>
+<a href="https://lingchao.xin/post/why-golang-garbage-collector-not-implement-generational-and-compact-gc.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

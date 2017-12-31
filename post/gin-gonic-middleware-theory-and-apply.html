@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Gin-Gonic 框架中间件原理与应用</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a>, <a href="https://lingchao.xin/tag/gin.html">gin</a>, <a href="https://lingchao.xin/tag/web.html">web</a> </div>
+<div class="date">
+Written on 2017-06-18 15:00:33 </div>
+</div>
+<div class="article-content">
+<p>在 Go 的世界里, web 框架简直多如牛毛.</p>
+
+<p>前有自带电池的标准库(<code>net/http</code>), 后有简洁优雅的 Gin-Gonic(以下简称 <code>Gin</code>), 再有全栈开发一枝花 Beego, 等等不可胜数.</p>
+
+<p>使用 Go 有一段时间了, web 开发一直用的 <code>Gin</code>. <code>Gin</code> 的思想和 <code>Python</code> 框架 <code>Flask</code> 有颇多相似之处, 可以称作 <em>微框架</em> .
+<!--more--></p>
+
+<p>Gin 包括以下几个主要的部分:</p>
+
+<ul>
+<li><p>设计精巧的路由/中间件系统;</p></li>
+<li><p>简单好用的核心上下文 <code>Context</code>;</p></li>
+<li><p>附赠工具集(JSON/XML 响应, 数据绑定与校验等).</p></li>
+</ul>
+
+<p>本文意在探究 <code>Gin</code> 中间件的执行原理.</p>
+
+<p>我们先看如下的 <code>Hello World</code> 版 <code>Gin</code> 程序：</p>
+
+<pre><code>package main
+
+import (
+    "log"
+    "net/http"
+
+    "github.com/gin-gonic/gin"
+)
+
+func main() {
+    r := gin.Default()
+
+    r.GET("/ping", func(c *gin.Context) {
+        c.String(http.StatusOK, "%s", "pong!")
+    })
+
+    if err := r.Run("0.0.0.0:8080"); err != nil {
+        log.Fatalln(err)
+    }
+}</code></pre>
+
+<p>这个简单的 <code>Gin</code> 程序默认启用了两个中间件, 分别是 <code>Logger()</code> 和 <code>Recovery()</code>.</p>
+
+<p>我们之前说过, <code>Context</code> 是 <code>Gin</code> 的核心, 它的构造如下:</p>
+
+<pre><code>type Context struct {
+    writermem responseWriter
+    Request   *http.Request
+    Writer    ResponseWriter
+
+    Params   Params
+    handlers HandlersChain
+    index    int8
+
+    engine   *Engine
+    Keys     map[string]interface{}
+    Errors   errorMsgs
+    Accepted []string
+}</code></pre>
+
+<p>其中 <code>handlers</code> 我们通过源码可以知道就是 <code>[]HandlerFunc</code>. 而它的签名正是:</p>
+
+<pre><code>type HandlerFunc func(*Context)</code></pre>
+
+<p>所以中间件和我们普通的 <code>HandlerFunc</code> 没有任何区别对吧, 我们怎么写 <code>HandlerFunc</code> 就可以怎么写一个中间件.</p>
+
+<p>那么问题来了, 我们怎么解决一个请求和一个响应经过我们的中间件呢?</p>
+
+<p>我们来写个简单的中间件分析一下:</p>
+
+<pre><code>    r.Use(func(c *gin.Context) {
+        log.Println("Request in") // ①
+        c.Next() // next handler func
+        log.Println("Response out") // ②
+    })</code></pre>
+
+<p>神奇的语句出现了, 没错就是 <code>c.Next()</code>, 所有中间件都有 <code>Request</code> 和 <code>Response</code> 的分水岭, 就是这个 <code>c.Next()</code>, 否则没有办法传递中间件.</p>
+
+<p>我们来看源码:</p>
+
+<pre><code>func (c *Context) Next() {
+    c.index++
+    s := int8(len(c.handlers))
+    for ; c.index &lt; s; c.index++ {
+        c.handlers[c.index](c)
+    }
+}</code></pre>
+
+<p>一个请求过来, <code>Gin</code> 会主动调用 <code>c.Next()</code> 一次. 因为 <code>handlers</code> 是 <code>slice</code> , 所以后来者中间件会追加到尾部.</p>
+
+<p>这样就形成了形如 <code>m1(m2(f()))</code> 的调用链. 正如上面数字① ② 标注的一样, 我们会依次执行如下的调用:</p>
+
+<pre><code>m1① -&gt; m2① -&gt; f -&gt; m2② -&gt; m1②</code></pre>
+
+<p>我们用下面一张图来来总结这种关系:</p>
+
+<p><img src="/static/images/gin-middleware.png" alt="middleware stream" /></p>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/postgresql-10-full-text-search-support-for-json-and-jsonb.html">Previous</a><br>
+<a href="https://lingchao.xin/post/golang-graceful-restart-server.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Golang 服务优雅重启</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/go.html">go</a>, <a href="https://lingchao.xin/tag/http.html">http</a> </div>
+<div class="date">
+Written on 2017-07-25 14:14:04 </div>
+</div>
+<div class="article-content">
+<p>很多时候对于服务升级的做法简单粗暴, 就简单的杀进程启动新的进程.
+<!--more--></p>
+
+<p>还有的好一点就是多个相同的服务依次升级, 保证有服务可用. 但是公平的说这两种都会丢失请求中的连接.</p>
+
+<p>鉴于这种情况, 在现实中我们可以使用优雅重启来搞定这个问题. Golang 实现优雅重启的原理也很简单:</p>
+
+<ul>
+<li><p>监听 USR2 信号;</p></li>
+<li><p>收到信号后将服务监听的文件描述符传递给新的子进程;</p></li>
+<li><p>此时新老进程同时接收请求;</p></li>
+<li><p>父进程停止接收新请求, 等待旧请求完成(或超时);</p></li>
+<li><p>父进程退出.</p></li>
+</ul>
+
+<p>对于上面的原理看似简单, 其实是分成了两个大的要点:</p>
+
+<ul>
+<li><p>新老进程同时监听同一端口, 这个很简单, Go 很早旧支持;</p></li>
+<li><p>如何等待旧的请求完成, 这个在 Go 1.8 (新增了Server.Shutdown) 之前是需要费一番功夫的.</p></li>
+</ul>
+
+<p>我们搞定了上面的原理之后, 加上 Go 1.8 的完美等待旧请求的实现,</p>
+
+<p>我实现了一个简单的优雅重启库: https://github.com/douglarek/zerodown.</p>
+
+<p><code>zerodown</code> 完美兼容基于 Go 标准库 Server 监听服务.</p>
+
+<p>对于标准库的使用, 我们可以象下面一样使用:</p>
+
+<pre><code>package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/douglarek/zerodown"
+)
+
+func main() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        time.Sleep(5 * time.Second)
+        fmt.Fprintln(w, "Hello, World!")
+    })
+    log.Fatalln(zerodown.ListenAndServe(":8080", nil))</code></pre>
+
+<p>对于第三方库 Gin 我们可以:</p>
+
+<pre><code>package main
+
+import (
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/douglarek/zerodown"
+
+    "github.com/gin-gonic/gin"
+)
+
+func main() {
+    router := gin.Default()
+    router.GET("/", func(c *gin.Context) {
+        time.Sleep(5 * time.Second)
+        c.String(http.StatusOK, "Hello, World!")
+    })
+    log.Fatalln(zerodown.ListenAndServe(":8080", router))
+}</code></pre>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/gin-gonic-middleware-theory-and-apply.html">Previous</a><br>
+<a href="https://lingchao.xin/post/2017-has-passed.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>

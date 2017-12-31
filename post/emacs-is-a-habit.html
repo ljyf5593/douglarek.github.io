@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"> <head> <title>A Coder @ Work</title> <meta http-equiv="content-type" content="text/html; charset=UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" /> <link href="//fonts.googleapis.com/css?family=Vollkorn:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css" /> <link href="//fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" /> <link href= "https://lingchao.xin/css/style.css" rel="stylesheet" type="text/css" /> <link rel="alternate" href="https://lingchao.xin/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-47053188-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="navigation"> <a href="https://lingchao.xin">A Coder @ Work</a> | <a href="https://twitter.com/douglarek">Twitter</a>  | <a href="https://github.com/douglarek">Code</a>  | <a href="https://lingchao.xin/rss.xml">Rss</a>  </div> <div id="content"> <div class="article-meta">
+<h1 class="title">Emacs 是一种习惯</h1>
+<div class="tags">
+Tagged as <a href="https://lingchao.xin/tag/editor.html">editor</a>, <a href="https://lingchao.xin/tag/emacs.html">emacs</a> </div>
+<div class="date">
+Written on 2015-05-09 00:21 </div>
+</div>
+<div class="article-content">
+<h3>What is Emacs</h3>
+
+<p>EMACS may stand for <em>Editing MACroS</em>, but it has some more creative <a href="https://www.gnu.org/fun/jokes/gnuemacs.acro.exp.html" >definitions</a>. Here they are.</p>
+
+<ul>
+<li><em>Emacs Makes A Computer Slow</em></li>
+<li>Emacs May Annihilate Command Structures</li>
+<li>Evenings, Mornings, And a Couple of Saturdays</li>
+<li>Ever Made A Control-key Setup?</li>
+<li>Elephantine Memory Absolutely Considered Sine que non</li>
+<li>Emacs Makers Are Crazy Sickos</li>
+<li>...</li>
+</ul>
+
+<h3>My road to mutiny</h3>
+
+<h4>Interactive Mode</h4>
+
+<p>Before Emacs, I used Vim for three more years, so I think I'm very familiar with it.</p>
+
+<p>For Vim users (including me), a small detail is they often restart vim. they open a file, edit it , exit vim; then another, and so on. One reason may be Vim really starts very quickly, but the most important is that Vim lacks interactive mode.</p>
+
+<p>Compared with Emacs's super-charging completion engine and Ido Mode, Vim is a bullshit in doing things interactively.</p>
+
+<p>Of course, Ido Mode in Emacs is off by default, you can enable it like this:</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_146.html#IDX436" class="symbol"><i><span class="symbol">setq</span></i></a> ido-enable-flex-matching <a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_266.html#IDX704" class="symbol">t</a></span>)</span>
+<span class="paren1">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_146.html#IDX436" class="symbol"><i><span class="symbol">setq</span></i></a> ido-everywhere <a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_266.html#IDX704" class="symbol">t</a></span>)</span>
+<span class="paren1">(<span class="code">ido-mode 1</span>)</span></span></code></pre>
+
+<p>It'll enable basic Ido support for files and buffers and the very useful <em>flex matching</em> as well.</p>
+
+<h4>Package management</h4>
+
+<p><a href="http://wikemacs.org/wiki/Package.el" >Since Emacs 24</a> (2012), It (package.el) became part of Emacs. But util now, <a href="https://github.com/gmarik/Vundle.vim" >Vundle</a> is still a plug-in manager for Vim.</p>
+
+<p>What does it mean ? It means Emacs has an official maintained package repository (<a href="http://elpa.gnu.org/packages/" >GNU ELPA Packages</a>) while Vim not. So What Vim missing ? It is Software Reuse.</p>
+
+<p>Ok, You maybe justify that Vim is just an editor not an OS; so package is meaningless for Vim; and Emacs is an OS that a package can be installed in it. For me it is a meaningless excuses.</p>
+
+<p>Either Emacs or Vim, They both have a runtime environment to ensure that plugins or packages run. But on top of Emacs runtime, there is a library layer. Maybe it is the important difference between Emacs and Vim runtime environment.</p>
+
+<p>End result, in Emacs, either a library or plug-in like package, they are treated equally; and a plug-in like package can reuse a library package.</p>
+
+<p>Relative to Vim, I'm more optimistic about <a href="https://github.com/neovim" >Neovim</a>, I hope it can be better than Vim in plugin system, and I donated <em>$15</em> to it.</p>
+
+<p>Emacs package interface is very good, you can not only use <em>GNU ELPA Packages</em> but also third ones.</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_201.html#IDX535" class="symbol">require</a> 'package</span>)</span>
+
+<span class="paren1">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_146.html#IDX439" class="symbol">add-to-list</a> 'package-archives '<span class="paren2">(<span class="code"><span class="string">"melpa"</span> . <span class="string">"http://melpa.org/packages/"</span></span>)</span> <a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_266.html#IDX704" class="symbol">t</a></span>)</span>
+
+<span class="paren1">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_126.html#IDX387" class="symbol">when</a> <span class="paren2">(<span class="code">&lt; <a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_14.html#IDX13" class="symbol">emacs-major-version</a> 24</span>)</span>
+  <span class="comment">;; For important compatibility libraries like cl-lib
+</span>  <span class="paren2">(<span class="code"><a href="http://www.gnu.org/software/emacs/elisp-manual/html_node/elisp_146.html#IDX439" class="symbol">add-to-list</a> 'package-archives '<span class="paren3">(<span class="code"><span class="string">"gnu"</span> . <span class="string">"http://elpa.gnu.org/packages/"</span></span>)</span></span>)</span></span>)</span>
+
+<span class="paren1">(<span class="code">package-initialize</span>)</span></span></code></pre>
+ </div>
+<div class="relative-nav">
+<a href="https://lingchao.xin/post/postgresql-aggregate-functions.html">Previous</a><br>
+<a href="https://lingchao.xin/post/make-a-dynamic-class-in-python.html">Next</a><br>
+</div>
+ </div> <script type="text/javascript">
+   var disqus = {
+   load : function disqus(){
+       var disqus_shortname = 'douglarek';
+       if(typeof DISQUS !== 'object') {
+         (function () {
+         var s = document.createElement('script'); s.async = true;
+         s.type = 'text/javascript';
+         s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+         (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+         }());
+	 document.getElementById('load-disqus').remove();
+       }
+       return true;
+   }
+   }
+</script>
+<a href="#disqus_thread" onclick="return disqus.load();" id="load-disqus">
+Load Disqus
+</a>
+<div id="disqus_thread"></div> <div class="fineprint"> <hr> Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="https://lingchao.xin/css/cc-by-sa.png" /> </a> by Lingchao Xin <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="https://lingchao.xin/css/logo_small.jpg" alt="Coleslaw logo" /> </a> </div> </body> </html>
